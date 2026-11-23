@@ -39,7 +39,7 @@
       {
         "from": "build-data",
         "to": "build-data",
-        "filter": ["cn-stats.json", "cn-stats.compiled.bin", "build-meta.json"]
+        "filter": ["cn-stats.json", "build-meta.json"]
       }
     ],
     "mac": {
