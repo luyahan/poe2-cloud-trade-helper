@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>查价助手设置</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, "PingFang SC", sans-serif; font-size: 13px; margin: 0; padding: 16px; line-height: 1.6; }
+  h1 { font-size: 15px; font-weight: 500; margin: 0 0 12px; }
+  .row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(128,128,128,0.15); }
+  .row label { flex: 1; }
+  .row .hint { display: block; font-size: 11px; opacity: 0.6; }
+  input[type="text"], input[type="number"], select { padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(128,128,128,0.3); background: transparent; color: inherit; font-size: 13px; width: 160px; }
+  input[type="checkbox"] { width: 16px; height: 16px; }
+  .actions { margin-top: 16px; display: flex; gap: 8px; }
+  button { padding: 6px 14px; border-radius: 6px; border: 1px solid rgba(128,128,128,0.3); background: transparent; color: inherit; cursor: pointer; font-size: 13px; }
+  button.primary { background: #185FA5; color: #fff; border-color: #185FA5; }
+  #status { margin-top: 10px; font-size: 12px; opacity: 0.7; min-height: 18px; }
+</style>
+</head>
+<body>
+  <h1>PoE2 查价助手设置</h1>
+  <div class="row">
+    <label>联赛名称<span class="hint">国服 PoE2 当前联赛，用于市集 URL</span></label>
+    <input type="text" id="league" />
+  </div>
+  <div class="row">
+    <label>市集主机<span class="hint">国服 poe.game.qq.com / 国际服 www.pathofexile.com</span></label>
+    <input type="text" id="host" />
+  </div>
+  <div class="row">
+    <label>自动打开市集<span class="hint">解析成功后自动用浏览器打开</span></label>
+    <input type="checkbox" id="autoOpen" />
+  </div>
+  <div class="row">
+    <label>启用监听<span class="hint">关闭后需手动「立即解析」</span></label>
+    <input type="checkbox" id="enabled" />
+  </div>
+  <div class="row">
+    <label>热键读取延迟 (ms)<span class="hint">按 Ctrl+Alt+C 后等多久读剪贴板（云游戏同步）</span></label>
+    <input type="number" id="readDelayMs" min="200" max="3000" step="100" />
+  </div>
+  <div class="row">
+    <label>自动启用阶级 ≤<span class="hint">T1/T2 默认勾选，更高阶级默认不勾</span></label>
+    <input type="number" id="tierMax" min="1" max="10" />
+  </div>
+  <div class="row">
+    <label>启用无阶级词缀<span class="hint">rune/implicit 等默认是否勾选</span></label>
+    <input type="checkbox" id="includeUntiered" />
+  </div>
+  <div class="row">
+    <label>交易状态<span class="hint">在线 / 任意</span></label>
+    <select id="status">
+      <option value="online">在线</option>
+      <option value="any">任意</option>
+    </select>
+  </div>
+  <div class="actions">
+    <button class="primary" id="save">保存</button>
+    <button id="refreshDict">刷新词典</button>
+    <button id="close">关闭</button>
+  </div>
+  <div id="status"></div>
+
+<script>
+  const fields = ['league','host','autoOpen','enabled','readDelayMs','tierMax','includeUntiered','status'];
+  const boolFields = new Set(['autoOpen','enabled','includeUntiered']);
+  const numFields = new Set(['tierMax','readDelayMs']);
+
+  async function load() {
+    const s = await window.api.getSettings();
+    for (const f of fields) {
+      const el = document.getElementById(f);
+      if (boolFields.has(f)) el.checked = !!s[f];
+      else el.value = s[f];
+    }
+  }
+
+  document.getElementById('save').addEventListener('click', async () => {
+    for (const f of fields) {
+      const el = document.getElementById(f);
+      let v;
+      if (boolFields.has(f)) v = el.checked;
+      else if (numFields.has(f)) v = Number(el.value);
+      else v = el.value;
+      await window.api.setSetting(f, v);
+    }
+    document.getElementById('status').textContent = '已保存 ✓';
+    setTimeout(() => document.getElementById('status').textContent = '', 2000);
+  });
+
+  document.getElementById('refreshDict').addEventListener('click', async () => {
+    document.getElementById('status').textContent = '刷新中…';
+    try { await window.api.refreshDict(); document.getElementById('status').textContent = '词典已刷新 ✓'; }
+    catch (e) { document.getElementById('status').textContent = '刷新失败：' + e.message; }
+  });
+
+  document.getElementById('close').addEventListener('click', () => window.api.close());
+  load();
+</script>
+</body>
+</html>
