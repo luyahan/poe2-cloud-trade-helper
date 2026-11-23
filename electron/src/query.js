@@ -58,17 +58,19 @@ function guessCategory(parsedItem) {
   return undefined; // 未确认的类别不加过滤，避免错 option 导致搜索失败
 }
 
-// 取词缀的筛选下限：优先 min 端（买家找不低于此值的）
-function rollMin(stat) {
-  const r = stat.rolls?.[0];
+// 词典 # 对应的是实际可变 roll，而非文本里的固定秒数/次数。
+// 保留括号内理论 roll 下限作为搜索下限；冷却时间等更低更好的词缀改为上限。
+function rollValue(stat, match) {
+  const r = stat.rolls?.[match.valueRollIndex ?? 0];
   if (!r) return undefined;
-  return r.min != null ? r.min : r.value;
+  if (match.tradeInvert) return r.max != null ? { max: r.max } : { max: r.value };
+  return { min: r.min != null ? r.min : r.value };
 }
 
 /**
  * @param parsedItem  parseItemText 产物
  * @param matched     matchItem 产物 [{mod, match}]
- * @param opts        { tierMax, includeUntiered, league, host, status }
+ * @param opts        { tierMax, includeUntiered, league, host }
  */
 const { addDpsFilters } = require('./lib/weapon-dps.js');
 
@@ -77,7 +79,6 @@ function buildQuery(parsedItem, matched, opts = {}) {
     tierMax = 2,
     includeUntiered = false,
     league = '联赛',
-    status = 'online',
   } = opts;
 
   const filters = [];
@@ -85,15 +86,15 @@ function buildQuery(parsedItem, matched, opts = {}) {
   for (const { mod, stat, match } of matched) {
     if (!match || !stat) continue;
     // 混合词缀多行可能命中同一 id（少见），去重
-    const min = rollMin(stat);
-    const dedupKey = `${match.id}:${min ?? ''}`;
+    const value = rollValue(stat, match);
+    const dedupKey = `${match.id}:${JSON.stringify(value) || ''}`;
     if (seen.has(dedupKey)) continue;
     seen.add(dedupKey);
 
     let disabled;
     if (parsedItem.rarity === '传奇') {
-      // 传奇词缀固定，买家关心 roll 高低 → 全部启用（按 roll 下限筛）
-      disabled = false;
+      // 传奇的符文是可替换的附加属性，不属于固有传奇词缀；默认不缩小同款结果。
+      disabled = mod.type === 'Rune' || (mod.tier == null && mod.type !== 'Explicit' && !includeUntiered);
     } else if (mod.tier != null) {
       disabled = mod.tier > tierMax; // T1/T2 启用，T3+ 禁用
     } else {
@@ -101,7 +102,7 @@ function buildQuery(parsedItem, matched, opts = {}) {
     }
 
     const filter = { id: match.id };
-    if (min != null) filter.value = { min };
+    if (value) filter.value = value;
     if (disabled) filter.disabled = true;
     filters.push(filter);
   }
@@ -110,16 +111,16 @@ function buildQuery(parsedItem, matched, opts = {}) {
   // 没有 {query:{...}, sort:{...}} 包裹（实测真实国服 URL 确认）。
   // 包错结构会导致市集报「无法使用搜索」。
   const query = {
-    status: { option: status },
+    status: { option: 'any' },
     stats: [{ type: 'and', filters }],
     filters: {},
   };
 
-  // 国服精确匹配统一使用顶层 type：
-  // 传奇 → "传奇名 基底名"（如「仇恨熔炉 铸锻护手」）
-  // 稀有 → 基底名（如「雕饰战弩」），不使用随机装备名。
+  // 传奇：name 只放传奇名，type 只放基底名；不要把两个名称拼成一个不存在的基底。
+  // 稀有：type 放基底名，不使用随机装备名。
   if (parsedItem.rarity === '传奇' && parsedItem.name) {
-    query.type = [parsedItem.name, parsedItem.baseName].filter(Boolean).join(' ');
+    query.name = parsedItem.name;
+    if (parsedItem.baseName) query.type = parsedItem.baseName;
   } else if (parsedItem.baseName) {
     query.type = parsedItem.baseName;
   }
@@ -141,7 +142,8 @@ function buildQuery(parsedItem, matched, opts = {}) {
   // 物品等级下限（可选，找同等或更高 ilvl 的基底）
   // ⚠️ 国服 filters API 确认 ilvl 属于 type_filters（不是 misc_filters，
   // EE2/国际服才放 misc）。放错分组会导致市集报「无法使用搜索」。
-  if (parsedItem.itemLevel != null) {
+  // 传奇的物品等级不影响固有词缀，强制 ilvl 下限会无谓排除同款挂单。
+  if (parsedItem.itemLevel != null && parsedItem.rarity !== '传奇') {
     query.filters.type_filters ??= { filters: {} };
     query.filters.type_filters.filters.ilvl = { min: parsedItem.itemLevel };
   }

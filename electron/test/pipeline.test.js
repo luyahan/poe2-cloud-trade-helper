@@ -114,7 +114,8 @@ test('查询结构：扁平载荷（防「无法使用搜索」回归）', () =>
   const matched = matchItem(p, compiled);
   const { query } = buildQuery(p, matched, {});
   assert.deepEqual(Object.keys(query).sort(), ['filters', 'stats', 'status', 'type']);
-  assert.equal(query.status.option, 'online');
+  assert.equal(query.status.option, 'any');
+  assert.equal(buildQuery(p, matched, { status: 'online' }).query.status.option, 'any');
   assert.equal(query.stats[0].type, 'and');
   assert.equal(query.type, p.baseName); // 基底名精确匹配
   assert.ok(!('query' in query), '不应有 query 包裹层');
@@ -157,10 +158,10 @@ test('战矛匹配：命中值/暴击/混合词缀全命中', () => {
   const matched = matchItem(p, compiled);
   const byText = {};
   for (const { stat, match } of matched) if (match) byText[stat.template] = match.id;
-  assert.equal(byText['+# 命中值'], 'explicit.stat_803737631');
-  assert.equal(byText['暴击几率 +#%'], 'explicit.stat_518292764');
-  assert.equal(byText['照亮范围提高 #%'], 'explicit.stat_1263695895');
-  assert.equal(byText['此武器的近战打击范围提高 #%'], 'implicit.stat_548198834');
+  assert.equal(byText['# 命中值'], 'explicit.stat_803737631');
+  assert.equal(byText['暴击几率 #%'], 'explicit.stat_518292764');
+  assert.equal(byText['照亮范围提高#%'], 'explicit.stat_1263695895');
+  assert.equal(byText['此武器的近战打击范围提高#%'], 'implicit.stat_548198834');
   // 帝王的混合词缀产出两条（物理伤害提高 + 命中值）
   const emperorMatches = matched.filter(m => m.mod.name === '帝王的' && m.match);
   assert.equal(emperorMatches.length, 2);
@@ -196,6 +197,81 @@ test('战矛查询：类别正确且非空', () => {
   // T1/T2 启用：埋葬的T2/帝王的T2/光辉之T1 = 至少3条（帝王的两行都T2）
   const enabled = query.stats[0].filters.filter(f => !f.disabled);
   assert.ok(enabled.length >= 3);
+});
+
+const hateforge = `物品类别: 手套
+稀有度: 传奇
+仇恨熔炉
+铸锻护手
+--------
+护甲: 394 (augmented)
+--------
+需求： 等级 60, 39 (augmented) 力量
+--------
+插槽: S
+--------
+物品等级: 82
+--------
+攻击每击中一名敌人获得3点生命 (rune)
+攻击每击中一名敌人获得1点魔力 (rune)
+--------
+{ 传奇属性 — 护甲 }
+护甲提高 343 (300-400)%
+{ 传奇属性 }
+击中时获得 6 (3-6) 点怒火
+{ 传奇属性 }
+处于怒火上限状态时，获得一个随机能量球，每 5.92 (3-6) 秒只能获得一次
+{ 瓦尔传奇词缀 }
+过去 20 秒内每使用一次需要荣耀的技能时，怒火上限 +8 (8-10)
+{ 传奇属性 }
++9 (-10-+10) 怒火上限
+--------
+首个卡鲁人诞生于瓦尔帝国边陲，
+来自一场从腐化中开发血瘟的实验。
+--------
+被腐化`;
+
+test('仇恨熔炉：腐化传奇完整解析，正负区间不拆分', () => {
+  const p = parseItemText(hateforge);
+  assert.equal(p.name, '仇恨熔炉');
+  assert.equal(p.baseName, '铸锻护手');
+  assert.equal(p.corrupted, true);
+  assert.equal(p.mods.length, 7);
+  const vaal = p.mods.find(m => m.stats[0].text.startsWith('过去 20 秒'));
+  assert.deepEqual(vaal.stats[0].rolls.map(r => r.value), [20, 8]);
+  const rage = p.mods.find(m => m.stats[0].text.startsWith('+9'));
+  assert.deepEqual(rage.stats[0].rolls, [{ value: 9, min: -10, max: 10 }]);
+});
+
+test('仇恨熔炉：7/7 词缀命中，瓦尔固定 20 秒不误作 roll', () => {
+  const p = parseItemText(hateforge);
+  const matched = matchItem(p, compiled);
+  assert.equal(matched.filter(m => m.match).length, 7);
+  const armour = matched.find(m => m.stat.text.startsWith('护甲提高'));
+  assert.equal(armour.match.id, 'explicit.stat_1062208444');
+  assert.equal(armour.match.text, '护甲提高 #% (区域)');
+  const vaal = matched.find(m => m.stat.text.startsWith('过去 20 秒'));
+  assert.equal(vaal.match.id, 'explicit.stat_3302775221');
+  assert.equal(vaal.match.valueRollIndex, 1);
+  const rage = matched.find(m => m.stat.text.startsWith('+9'));
+  assert.equal(rage.match.id, 'explicit.stat_1181501418');
+});
+
+test('仇恨熔炉：传奇名与基底分列，符文和 ilvl 默认不限制', () => {
+  const p = parseItemText(hateforge);
+  const { query } = buildQuery(p, matchItem(p, compiled), {});
+  assert.equal(query.name, '仇恨熔炉');
+  assert.equal(query.type, '铸锻护手');
+  assert.equal(query.filters.type_filters.filters.ilvl, undefined);
+  const filters = query.stats[0].filters;
+  assert.deepEqual(filters.find(f => f.id === 'explicit.stat_1062208444').value, { min: 300 });
+  assert.equal(filters.some(f => f.id === 'explicit.stat_2866361420'), false);
+  assert.deepEqual(filters.find(f => f.id === 'explicit.stat_2258007247').value, { min: 3 });
+  assert.deepEqual(filters.find(f => f.id === 'explicit.stat_3302775221').value, { min: 8 });
+  const cooldown = filters.find(f => f.id === 'explicit.stat_2284588585');
+  assert.deepEqual(cooldown.value, { max: 6 });
+  assert.equal(filters.find(f => f.id === 'explicit.stat_1181501418').value.min, -10);
+  assert.equal(filters.filter(f => f.id.startsWith('rune.')).every(f => f.disabled), true);
 });
 
 // ---- 热键组合键判定逻辑（mock uiohook，不依赖真实权限）----

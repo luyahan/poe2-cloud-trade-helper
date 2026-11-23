@@ -13,7 +13,6 @@ const DEFAULTS = {
   tierMax: 2,             // T1/T2 自动启用
   includeUntiered: false, // rune/implicit 是否默认启用
   readDelayMs: 600,       // 热键命中后延迟读剪贴板（等云游戏同步）
-  status: 'online',       // 在线/任意
 };
 
 class Settings {

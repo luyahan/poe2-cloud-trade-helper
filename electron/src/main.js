@@ -95,7 +95,6 @@ async function handleItemText(text) {
       tierMax: settings.get('tierMax'),
       includeUntiered: settings.get('includeUntiered'),
       league: settings.get('league'),
-      status: settings.get('status'),
     });
     const url = await encodeTradeUrl(query, league, settings.get('host'));
 

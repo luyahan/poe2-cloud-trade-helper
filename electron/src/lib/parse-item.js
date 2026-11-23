@@ -21,8 +21,9 @@ const MOD_LINE =
 // 获得技能行（武器基底自带技能，如「获得技能: 战矛飞掷」）
 const GRANT_SKILL_LINE = /^获得技能:\s*(.+)$/;
 
-// 数值+区间：90 (88-101) 或 23 (23-25) 或 5（无区间）
-const NUM_RANGE = /(?<value>-?\d+(?:\.\d+)?)\s*(?:\((?<min>-?\d+(?:\.\d+)?)-(?<max>-?\d+(?:\.\d+)?)\))?/g;
+// 数值+区间：90 (88-101)、+9 (-10-+10)、23 (23-25) 或 5（无区间）。
+// 区间分隔符与前导正负号分别匹配，避免把 (-10-+10) 拆成三个独立数字。
+const NUM_RANGE = /(?<sign>[+-]?)(?<value>\d+(?:\.\d+)?)\s*(?:\((?<min>[+-]?\d+(?:\.\d+)?)\s*[-–—]\s*(?<max>[+-]?\d+(?:\.\d+)?)\))?/g;
 
 const SECTION_SEP = /^-{4,}$/;
 
@@ -56,7 +57,7 @@ function extractRolls(text) {
   const rolls = [];
   for (const m of text.matchAll(NUM_RANGE)) {
     rolls.push({
-      value: Number(m.groups.value),
+      value: Number(`${m.groups.sign || ''}${m.groups.value}`),
       min: m.groups.min != null ? Number(m.groups.min) : undefined,
       max: m.groups.max != null ? Number(m.groups.max) : undefined,
     });
@@ -64,9 +65,10 @@ function extractRolls(text) {
   return rolls;
 }
 
-// 去掉数值区间，得到用于词典匹配的「模板」（把数字替换成 #）
+// 模板沿用词典的 # 形式（数值前导 + 一并去除），避免 +# 与 # 的虚假差异。
 function toTemplate(text) {
   return text
+    .replace(/\+?\s*(?=\d)/g, '')
     .replace(NUM_RANGE, '#')
     .replace(/\s+/g, ' ')
     .trim();

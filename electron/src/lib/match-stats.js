@@ -29,20 +29,27 @@ const TYPE_GROUP_PRIORITY = {
 // 词缀类型后缀标记（词典文本不含这些，匹配前剥离）
 const TYPE_SUFFIX = /\s*\((rune|implicit|enchant|crafted|fractured|desecrated|augmented)\)\s*$/i;
 
-// 归一化：剥类型后缀 → 数值(含前导+号与区间)→# → 压缩所有空白 → 去首尾
-// 关键：游戏文本带「+51 命中值」「暴击几率 +3.39%」，词典是「# 命中值」「暴击几率 #%」，
-// 必须把数值前的 + 号一起吃掉，否则 +# ≠ # 导致漏配。
+// 归一化：剥类型后缀 → 数值(含前导+号与正负区间)→# → 压缩所有空白 → 去首尾。
+// 关键：「+51 命中值」对应词典的「# 命中值」；「+9 (-10-+10)」也必须只留下一个 #。
+const SIGNED_RANGE = /\+?-?\d+(?:\.\d+)?\s*(?:\([+-]?\d+(?:\.\d+)?\s*[-–—]\s*[+-]?\d+(?:\.\d+)?\))?/g;
 function normalizeTemplate(text) {
   return text
     .replace(TYPE_SUFFIX, '')
-    .replace(/\+?-?\d+(?:\.\d+)?\s*(?:\(\+?-?\d+(?:\.\d+)?-\+?-?\d+(?:\.\d+)?\))?/g, '#')
+    .replace(SIGNED_RANGE, '#')
     .replace(/\s+/g, '')
     .trim();
 }
 
-// 词典 entry.text 同样归一化（它本身用 # 占位，只需压空格）
+// 词典 # 对应游戏文本中的第几个数值；固定数字（如 20 秒）不是 roll。
+function dictValueRollIndex(text) {
+  const index = text.indexOf('#');
+  if (index < 0) return undefined;
+  return (text.slice(0, index).match(/\d+(?:\.\d+)?/g) || []).length;
+}
+
+// 游戏文本和词典模板中的 +# 都表示有符号数值占位符。
 function normalizeDictText(text) {
-  return text.replace(/\s+/g, '').trim();
+  return text.replace(/\s+/g, '').replace(/\+#/g, '#').trim();
 }
 
 /**
@@ -56,6 +63,16 @@ function compileDictionary(dict) {
       const key = normalizeDictText(entry.text);
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(entry);
+      // 固定数字的词典条目额外建立索引，如「过去 20 秒内…+#」。
+      // 游戏文本的「过去 # 秒内…+#」也能命中，但不同固定秒数的条目不会串配。
+      // 已归一化为 # 的占位符不应再次当作固定数字索引。
+      const patternKey = normalizeTemplate(entry.text).replace(/\+#/g, '#');
+      // 普通词条保持原有精确匹配；只有固定数字被归一化后才需模板候选。
+      if (patternKey === key || !/\d/.test(entry.text)) continue;
+      if (!map.has('__patterns__')) map.set('__patterns__', new Map());
+      const patterns = map.get('__patterns__');
+      if (!patterns.has(patternKey)) patterns.set(patternKey, []);
+      patterns.get(patternKey).push(entry);
     }
     byGroup[group.id] = map;
   }
@@ -71,16 +88,19 @@ function matchStatLine(stat, groups, compiled) {
   for (const gid of groups) {
     const map = compiled[gid];
     if (!map) continue;
-    const hits = map.get(key);
+    const hits = map.get(key) || map.get('__patterns__')?.get(key);
     if (hits && hits.length) {
-      const exact = hits.find((h) => normalizeDictText(h.text) === key && h.text === stat.template);
+      const exact = hits.find((h) => h.text === stat.template);
       const chosen = exact || hits[0];
+      const valueIndex = dictValueRollIndex(chosen.text);
       return {
         id: chosen.id,
         text: chosen.text,
         group: gid,
         confidence: exact ? 'exact' : 'normalized',
         ambiguous: hits.length > 1,
+        tradeInvert: chosen.id === 'explicit.stat_2284588585' || undefined,
+        valueRollIndex: valueIndex,
       };
     }
   }
@@ -94,10 +114,15 @@ function matchStatLine(stat, groups, compiled) {
  */
 function matchMod(mod, compiled) {
   const groups = TYPE_GROUP_PRIORITY[mod.type] || ['explicit'];
-  return (mod.stats || []).map((stat) => ({
-    stat,
-    match: matchStatLine(stat, groups, compiled),
-  }));
+  return (mod.stats || []).map((rawStat) => {
+    const tags = Array.isArray(mod.tags) ? mod.tags : (mod.tags || '').split(/[,，]/).map((tag) => tag.trim());
+    // 游戏复制文本省略「(区域)」，但护甲元信息表明这是局部防御词缀。
+    // 与不带区域的全局护甲提高 explicit.stat_2866361420 分开匹配。
+    const stat = tags.includes('护甲') && /^护甲提高\s/.test(rawStat.text)
+      ? { ...rawStat, text: `${rawStat.text} (区域)`, template: `${rawStat.template} (区域)` }
+      : rawStat;
+    return { stat, match: matchStatLine(stat, groups, compiled) };
+  });
 }
 
 /**

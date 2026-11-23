@@ -45,7 +45,7 @@ test('腐化装备保留原品质，不自动补到 q20', () => {
   assert.equal(dps.display.pDPS, 297);
 });
 
-test('查询：传奇 type 拼接传奇名与基底名，不生成 name', () => {
+test('查询：传奇名与基底名分别写入 name 和 type', () => {
   const item = parseItemText(`物品类别: 手套
 稀有度: 传奇
 仇恨熔炉
@@ -54,8 +54,8 @@ test('查询：传奇 type 拼接传奇名与基底名，不生成 name', () => 
 { 传奇属性 — 护甲 }
 护甲提高 300%`);
   const { query } = buildQuery(item, [], {});
-  assert.equal(query.type, '仇恨熔炉 铸锻护手');
-  assert.equal('name' in query, false);
+  assert.equal(query.name, '仇恨熔炉');
+  assert.equal(query.type, '铸锻护手');
   assert.equal(query.filters.type_filters.filters.rarity.option, 'unique');
 });
 
