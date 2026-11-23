@@ -99,6 +99,23 @@ function calcWeaponDps(item) {
 
   const stats = sumDamageStats(item);
   const headerElements = parseElementalHeader(props.elementalDamage, item.mods);
+  // 攻速提高只用于推导词缀范围；面板 APS 是实际值，不按品质放大。
+  let attackSpeedIncreased = emptyRoll();
+  for (const text of statTexts(item)) {
+    const match = text.match(/^攻击速度提高\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*%/);
+    if (!match) continue;
+    attackSpeedIncreased.value += Number(match[1]);
+    attackSpeedIncreased.min += Number(match[2] ?? match[1]);
+    attackSpeedIncreased.max += Number(match[3] ?? match[1]);
+  }
+  const baseAttackSpeed = aps / (1 + attackSpeedIncreased.value / 100);
+  const attackSpeed = {
+    value: aps,
+    min: baseAttackSpeed * (1 + attackSpeedIncreased.min / 100),
+    max: baseAttackSpeed * (1 + attackSpeedIncreased.max / 100),
+    base: baseAttackSpeed,
+    increased: attackSpeedIncreased,
+  };
   const physical = props.physicalDamage;
   const hasPhysical = physical && Number.isFinite(physical.min) && Number.isFinite(physical.max) &&
     physical.min + physical.max > 0;
@@ -150,9 +167,9 @@ function calcWeaponDps(item) {
 
   if (!hasPhysical && !hasElemental && !physicalOnlyFromFlat) return undefined;
   const roll = (averages) => ({
-    value: averages.reduce((sum, entry) => sum + entry.value, 0) * aps,
-    min: averages.reduce((sum, entry) => sum + entry.min, 0) * aps,
-    max: averages.reduce((sum, entry) => sum + entry.max, 0) * aps,
+    value: averages.reduce((sum, entry) => sum + entry.value, 0) * attackSpeed.value,
+    min: averages.reduce((sum, entry) => sum + entry.min, 0) * attackSpeed.min,
+    max: averages.reduce((sum, entry) => sum + entry.max, 0) * attackSpeed.max,
   });
   const elemental = Object.values(elements);
   const pDPS = (hasPhysical || physicalOnlyFromFlat) ? roll([physicalAverage]) : undefined;
@@ -160,7 +177,7 @@ function calcWeaponDps(item) {
   const totalDPS = hasElemental ? roll([...((hasPhysical || physicalOnlyFromFlat) ? [physicalAverage] : []), ...elemental]) : undefined;
 
   return {
-    attackSpeed: aps,
+    attackSpeed,
     physicalAverage,
     elements,
     pDPS,
@@ -170,6 +187,9 @@ function calcWeaponDps(item) {
       pDPS: pDPS ? Math.round(pDPS.value) : undefined,
       eDPS: eDPS ? Math.round(eDPS.value) : undefined,
       totalDPS: totalDPS ? Math.round(totalDPS.value) : undefined,
+      fireDPS: elements.fire ? Math.round(elements.fire.value * attackSpeed.value) : undefined,
+      coldDPS: elements.cold ? Math.round(elements.cold.value * attackSpeed.value) : undefined,
+      lightningDPS: elements.lightning ? Math.round(elements.lightning.value * attackSpeed.value) : undefined,
     },
   };
 }

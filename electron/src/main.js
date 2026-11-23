@@ -95,6 +95,8 @@ async function handleItemText(text) {
       tierMax: settings.get('tierMax'),
       includeUntiered: settings.get('includeUntiered'),
       league: settings.get('league'),
+      dps: settings.get('dpsEnabled'),
+      dpsRangePercent: settings.get('dpsRangePercent'),
     });
     const url = await encodeTradeUrl(query, league, settings.get('host'));
 
@@ -164,9 +166,29 @@ function rebuildTrayMenu() {
   ];
 
   if (lastResult) {
-    const { parsed, hitCount, enabledCount, url } = lastResult;
+    const { parsed, hitCount, enabledCount, url, weaponDps } = lastResult;
     template.push(
       { label: `最近：${parsed.name || parsed.baseName || '装备'} (${hitCount}命中/${enabledCount}启用)`, enabled: false },
+    );
+    if (weaponDps) {
+      const { display } = weaponDps;
+      const dpsSummary = [
+        display.pDPS != null ? `物理 ${display.pDPS}` : '',
+        display.eDPS != null ? `元素 ${display.eDPS}` : '',
+        display.totalDPS != null ? `总 ${display.totalDPS}` : '',
+      ].filter(Boolean).join(' / ');
+      const dpsFilters = lastResult.query.filters.equipment_filters?.filters;
+      const thresholdSummary = ['pdps', 'edps', 'dps']
+        .filter((key) => dpsFilters?.[key]?.min != null)
+        .map((key) => `${{ pdps: '物理', edps: '元素', dps: '总' }[key]}≥${dpsFilters[key].min}`)
+        .join(' / ');
+      template.push(
+        { label: `武器面板 DPS：${dpsSummary}`, enabled: false },
+        { label: thresholdSummary ? `搜索下限：${thresholdSummary}` : 'DPS 仅计算，不写入筛选', enabled: false },
+        { label: '📋 复制 DPS 明细', click: () => clipboard.writeText(JSON.stringify(weaponDps, null, 2)) },
+      );
+    }
+    template.push(
       { label: '🔗 重新打开市集', click: () => shell.openExternal(url) },
       { label: '📄 复制查询 JSON', click: () => clipboard.writeText(JSON.stringify(lastResult.query, null, 2)) },
       { type: 'separator' },

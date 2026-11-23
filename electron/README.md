@@ -42,13 +42,15 @@ Windows 无此门槛。
 - **武器面板 DPS**（EE2 口径）：可修改武器的物理伤害按 q20 反推基础值后计算，
   `B=P/((1+Q/100)(1+I/100))-F`，再以 `B+F` 施加物理提高与品质；腐化装备保留原品质。
   元素 DPS 只含火/冰/电，攻速取当前面板。不计算暴击、混沌、技能倍率、人物天赋、命中、
-  抗性或战弩装填时间。纯物理武器写入 `equipment_filters.pdps`，有元素伤害时同时写入
+  抗性或战弩装填时间。物理、元素和总 DPS 会显示在托盘的最近解析结果中，可复制完整
+  计算明细。纯物理武器写入 `equipment_filters.pdps`，有元素伤害时同时写入
   `dps`、`pdps`（有物理面板时）和 `edps`，并带 `equipment_filters.disabled:false`；
   用户实测国服 URL 确认三项可并存。每项默认下限是各自计算值下调 2% 后向下取整，
   并不低于理论最低 roll。计算值保留在 `weaponDps`，与 `dpsMin` 手动阈值相互独立；
-  `pdpsMin`、`edpsMin` 可单独覆盖对应阈值。主进程传 `{dps:false}` 可关闭 DPS 筛选。
-- **⚠️ 国服精确匹配统一用顶层 `type`**：稀有装备写基底名（如「雕饰战弩」）；传奇装备写
-  **传奇名+基底名**（如「仇恨熔炉 铸锻护手」），不是 `name:"仇恨熔炉"`。
+  `pdpsMin`、`edpsMin` 可单独覆盖对应阈值。设置中可关闭 DPS 筛选（保留计算展示），
+  并配置 0–2% 的搜索下调比例；攻速只按词缀范围反推，不按品质放大。
+- **传奇名称分列**：传奇装备 `name` 写传奇名、`type` 写基底名；稀有装备只写基底名。
+- **交易状态固定任意**：始终 `status:{option:"any"}`，不提供在线状态选项。
 - **⚠️ 载荷必须是扁平结构**：国服 trade2 URL 解码后是 `{status, stats, filters}` 直接在
   顶层，**没有** `{query:{...}, sort:{...}}` 包裹（以真实国服 URL 解码为准）。包错结构
   市集会报「无法使用搜索」。
@@ -63,7 +65,7 @@ Windows 无此门槛。
 ## 安装与运行（开发态）
 
 ```bash
-cd trade-tray/electron
+cd /Users/luyahan/Documents/Work/poe/poe2-cloud-trade-helper/electron
 npm install          # 安装 Electron + electron-builder
 ./start.sh           # 启动（已处理 ELECTRON_RUN_AS_NODE 坑）
 ```
@@ -71,8 +73,8 @@ npm install          # 安装 Electron + electron-builder
 ## 编译打包（.app）
 
 ```bash
-cd trade-tray/electron
-npm run dist         # 一键：语法检查 → 27 项测试 → 拉最新数据 → 编译 .app → 签名
+cd /Users/luyahan/Documents/Work/poe/poe2-cloud-trade-helper/electron
+npm run dist         # 一键：语法检查 → 32 项测试 → 拉最新数据 → 编译 .app → 签名
 ```
 
 `predist` 自动执行 `scripts/prepare-data.js`：
@@ -112,14 +114,14 @@ open "/Applications/PoE2查价助手.app"
 1. 云游戏里对着装备按 `Ctrl+Alt+C`（高级复制，带 tier）。
 2. 助手自动识别 → 解析 → 打开市集（默认自动打开，可在设置关）。
 3. 托盘菜单：暂停/启用监听、立即解析剪贴板（手动兜底）、
-   重新打开最近市集、复制查询 JSON、自动打开开关、联赛设置、刷新词典、退出。
+   重新打开最近市集、复制查询 JSON、查看/复制武器 DPS 明细、自动打开开关、联赛设置、刷新词典、退出。
 4. 设置窗口可配：热键读取延迟、联赛名、市集主机（国服/国际服）、
-   tier 阈值、无阶级词缀开关、交易状态。
+   tier 阈值、无阶级词缀开关、武器 DPS 筛选开关及 0–2% 搜索下调比例。
 
 ## 测试
 
 ```bash
-npm test     # 27 项测试（解析/匹配/查询/编码/热键/真实 URL/q20 DPS/阈值分离）
+npm test     # 32 项测试（解析/匹配/查询/编码/热键/真实 URL/q20 DPS/阈值分离）
 npm run check # 语法校验所有模块
 ```
 

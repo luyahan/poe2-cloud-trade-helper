@@ -33,7 +33,12 @@ test('EE2 算例：q20 pDPS=324，eDPS=105，totalDPS=429', () => {
   assert.equal(item.derived.weaponDps.display.totalDPS, 429);
   assert.equal(item.derived.weaponDps.physicalAverage.quality, 20);
   const dps = calcWeaponDps(item);
-  assert.ok(Math.abs(dps.pDPS.value - 324) < 1e-9);
+  assert.equal(dps.display.pDPS, 324);
+  assert.equal(dps.display.eDPS, 105);
+  assert.equal(dps.display.totalDPS, 429);
+  assert.equal(dps.display.fireDPS, 45);
+  assert.equal(dps.display.coldDPS, 30);
+  assert.equal(dps.display.lightningDPS, 30);
   assert.equal(searchMin(dps.totalDPS, item.rarity), 420);
 });
 
@@ -121,6 +126,38 @@ test('查询：物理面板缺失时只用本地 flat 估计，不虚构负基�
   const dps = calcWeaponDps(item);
   assert.equal(dps.display.pDPS, 30);
   assert.equal(dps.physicalAverage.estimatedFromFlatOnly, true);
+});
+
+test('计算：攻速按词缀范围反推，符文元素伤害参与汇总', () => {
+  const item = parseItemText(`物品类别: 单手锤
+稀有度: 稀有
+测试武器
+钉头锤
+--------
+物理伤害: 150-150
+每秒攻击次数: 1.50
+--------
+{ 前缀属性 "物理提高" (等阶：1) }
+物理伤害提高 50 (50-50)%
+{ 后缀属性 "攻速" (等阶：1) }
+攻击速度提高 20 (10-30)%
+附加 30 (30-30) - 50 (50-50) 火焰伤害 (rune)`);
+  const dps = calcWeaponDps(item);
+  assert.equal(dps.attackSpeed.value, 1.5);
+  assert.equal(dps.attackSpeed.base, 1.25);
+  assert.equal(dps.attackSpeed.min, 1.375);
+  assert.equal(dps.attackSpeed.max, 1.625);
+  assert.equal(dps.display.fireDPS, 60);
+  assert.equal(dps.display.eDPS, 60);
+  assert.equal(dps.display.totalDPS, 330);
+});
+
+test('查询：关闭 DPS 筛选仍保留计算值供托盘显示', () => {
+  const item = parseItemText(SAMPLE);
+  const { query, weaponDps } = buildQuery(item, [], { dps: false });
+  assert.equal(query.filters.equipment_filters, undefined);
+  assert.equal(weaponDps, undefined);
+  assert.equal(item.derived.weaponDps.display.totalDPS, 429);
 });
 
 test('解析：元素分类只含火/冰/电，混沌不参与总 DPS', () => {

@@ -13,6 +13,8 @@ const DEFAULTS = {
   tierMax: 2,             // T1/T2 自动启用
   includeUntiered: false, // rune/implicit 是否默认启用
   readDelayMs: 600,       // 热键命中后延迟读剪贴板（等云游戏同步）
+  dpsEnabled: true,       // 是否将武器面板 DPS 下限写入交易筛选
+  dpsRangePercent: 2,     // 搜索阈值相对计算值下调比例（0-2%）
 };
 
 class Settings {
@@ -29,9 +31,10 @@ class Settings {
       const saved = JSON.parse(raw);
       this.data = { ...DEFAULTS, ...saved };
       this.userKeys = new Set(Object.keys(saved));
-      // 清理已废弃的轮询模式字段（旧版 settings.json 可能残留）
+      // 清理已废弃的轮询与交易状态字段；status 永远由查询层固定为 any。
       delete this.data.mode;
       delete this.data.intervalMs;
+      delete this.data.status;
     } catch {
       // 首次运行或损坏，用默认值
     }
