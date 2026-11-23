@@ -119,6 +119,12 @@ function parseItemText(raw) {
     else if ((m = line.match(/^稀有度:\s*(.+)$/))) item.rarity = m[1].trim();
     else if ((m = line.match(/^物品等级:\s*(\d+)/))) item.itemLevel = Number(m[1]);
     else if ((m = line.match(/^品质:\s*\+?(\d+)%/))) item.quality = Number(m[1]);
+    else if ((m = line.match(/^护甲:\s*(\d+)/))) item.properties.armour = Number(m[1]);
+    else if ((m = line.match(/^闪避(?:值)?:\s*(\d+)/))) item.properties.evasion = Number(m[1]);
+    else if ((m = line.match(/^能量护盾(?:上限)?:\s*(\d+)/))) item.properties.energyShield = Number(m[1]);
+    else if ((m = line.match(/^符文(?:结界|壁垒):\s*(\d+)/))) item.properties.ward = Number(m[1]);
+    else if ((m = line.match(/^格挡(?:几率|率)?:\s*([\d.]+)%/))) item.properties.block = Number(m[1]);
+    else if ((m = line.match(/^精魂:\s*(\d+)/))) item.properties.spirit = Number(m[1]);
     else if ((m = line.match(/^插槽:\s*(.+)$/))) item.sockets = m[1].trim();
     else if ((m = line.match(/^物理伤害:\s*(\d+)-(\d+)/)))
       item.properties.physicalDamage = { min: Number(m[1]), max: Number(m[2]) };
@@ -251,7 +257,9 @@ function parseItemText(raw) {
   // 6) 整体指标：EE2 q20 物理 + 火/冰/电面板 DPS，不是角色实际输出。
   const { calcWeaponDps } = require('./weapon-dps.js');
   const weaponDps = calcWeaponDps(item);
-  if (weaponDps) item.derived = { weaponDps };
+  const { calcDefences } = require('./defences.js');
+  const defences = calcDefences(item);
+  if (weaponDps || defences) item.derived = { weaponDps, defences };
 
   return item;
 }

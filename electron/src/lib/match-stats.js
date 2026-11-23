@@ -121,7 +121,10 @@ function matchMod(mod, compiled) {
     const stat = tags.includes('护甲') && /^护甲提高\s/.test(rawStat.text)
       ? { ...rawStat, text: `${rawStat.text} (区域)`, template: `${rawStat.template} (区域)` }
       : rawStat;
-    return { stat, match: matchStatLine(stat, groups, compiled) };
+    const match = matchStatLine(stat, groups, compiled);
+    // 保留已核实的国服 ID，供防御面板反推区分区域与全局同名文本。
+    if (match) rawStat.tradeId = match.id;
+    return { stat, match };
   });
 }
 

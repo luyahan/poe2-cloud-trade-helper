@@ -91,19 +91,20 @@ async function handleItemText(text) {
     if (!compiledDict) await loadDictionary();
     const parsed = parseItemText(text);
     const matched = matchItem(parsed, compiledDict);
-    const { query, league, weaponDps } = buildQuery(parsed, matched, {
+    const { query, league, weaponDps, defences } = buildQuery(parsed, matched, {
       tierMax: settings.get('tierMax'),
       includeUntiered: settings.get('includeUntiered'),
       league: settings.get('league'),
       dps: settings.get('dpsEnabled'),
       dpsRangePercent: settings.get('dpsRangePercent'),
+      defences: settings.get('defencesEnabled'),
     });
     const url = await encodeTradeUrl(query, league, settings.get('host'));
 
     const hitCount = matched.filter((m) => m.match).length;
     const totalFilters = query.stats[0].filters.length;
     const enabledCount = query.stats[0].filters.filter((f) => !f.disabled).length;
-    lastResult = { parsed, matched, query, url, hitCount, enabledCount, weaponDps };
+    lastResult = { parsed, matched, query, url, hitCount, enabledCount, weaponDps, defences };
 
     rebuildTrayMenu();
 
@@ -166,7 +167,7 @@ function rebuildTrayMenu() {
   ];
 
   if (lastResult) {
-    const { parsed, hitCount, enabledCount, url, weaponDps } = lastResult;
+    const { parsed, hitCount, enabledCount, url, weaponDps, defences } = lastResult;
     template.push(
       { label: `最近：${parsed.name || parsed.baseName || '装备'} (${hitCount}命中/${enabledCount}启用)`, enabled: false },
     );
@@ -186,6 +187,13 @@ function rebuildTrayMenu() {
         { label: `武器面板 DPS：${dpsSummary}`, enabled: false },
         { label: thresholdSummary ? `搜索下限：${thresholdSummary}` : 'DPS 仅计算，不写入筛选', enabled: false },
         { label: '📋 复制 DPS 明细', click: () => clipboard.writeText(JSON.stringify(weaponDps, null, 2)) },
+      );
+    }
+    if (defences) {
+      const summary = Object.values(defences).map((defence) => `${defence.label} ${defence.display}`).join(' / ');
+      template.push(
+        { label: `防御面板（q20）：${summary}`, enabled: false },
+        { label: '📋 复制防御计算明细', click: () => clipboard.writeText(JSON.stringify(defences, null, 2)) },
       );
     }
     template.push(

@@ -73,6 +73,7 @@ function rollValue(stat, match) {
  * @param opts        { tierMax, includeUntiered, league, host }
  */
 const { addDpsFilters } = require('./lib/weapon-dps.js');
+const { addDefenceFilters } = require('./lib/defences.js');
 
 function buildQuery(parsedItem, matched, opts = {}) {
   const {
@@ -151,8 +152,9 @@ function buildQuery(parsedItem, matched, opts = {}) {
   // 武器 DPS 默认开启；可修改武器按 q20 物理 + 火/冰/电，不含暴击/混沌/装填。
   // 计算值保留在返回值，写入市集的 min 由独立 threshold 逻辑计算。
   const weaponDps = addDpsFilters(query, parsedItem, opts);
+  const defences = addDefenceFilters(query, parsedItem, opts, matched);
 
-  return { query, league, weaponDps };
+  return { query, league, weaponDps, defences };
 }
 
 /**

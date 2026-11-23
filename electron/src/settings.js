@@ -15,6 +15,7 @@ const DEFAULTS = {
   readDelayMs: 600,       // 热键命中后延迟读剪贴板（等云游戏同步）
   dpsEnabled: true,       // 是否将武器面板 DPS 下限写入交易筛选
   dpsRangePercent: 2,     // 搜索阈值相对计算值下调比例（0-2%）
+  defencesEnabled: true,  // 是否将 q20 防御面板下限写入交易筛选
 };
 
 class Settings {
