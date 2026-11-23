@@ -3,7 +3,7 @@ import { parseItemText } from '../../../electron/src/lib/parse-item.js';
 import { compileDictionary, matchItem } from '../../../electron/src/lib/match-stats.js';
 import { buildQuery } from '../../../electron/src/query.js';
 
-// 在 QuickJS 中，compiledDict 由宿主通过 bjson.read 注入到 globalThis.compiledDict
+// 词典由宿主执行 cn-stats.compiled.js 后注入到 globalThis.compiledDict
 // gzip 由宿主 Swift 层处理（QuickJS 无 node:zlib）
 globalThis.parseAndQueryPrice = function(clipboardText, leagueName) {
     const item = parseItemText(clipboardText);

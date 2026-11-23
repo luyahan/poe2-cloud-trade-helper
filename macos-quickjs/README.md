@@ -1,13 +1,14 @@
-# PoeQuick — macOS SwiftUI + QuickJS 查价工具
+# PoeQuick — macOS AppKit + QuickJS 查价工具
 
-原生 macOS 菜单栏应用，用 QuickJS 内嵌 JS 引擎运行 PoE2 查价逻辑。
+原生纯 AppKit 菜单栏应用，无窗口、无 Dock 图标，用 QuickJS 内嵌 JS 引擎运行 PoE2 查价逻辑。
 
 ## 架构
 
 ```
 ┌─────────────────────────────────────────────┐
-│  SwiftUI 菜单栏（AppKit NSStatusItem）       │
-│  ├─ HotkeyManager    Cmd+Shift+D 全局热键    │
+│  AppKit NSStatusItem（纯菜单栏）            │
+│  ├─ HotkeyManager    Ctrl+Alt+C 只读监听     │
+│  │                   延迟 600ms 读剪贴板      │
 │  ├─ ClipboardReader  读取剪贴板              │
 │  └─ QuickJSHost      JS 桥接                 │
 └──────────────────┬──────────────────────────┘
@@ -43,13 +44,19 @@ swift build
 ./.build/debug/PoeQuick
 ```
 
+## 触发流程与权限
+
+`Ctrl+Alt+C` 使用 `CGEventTap` 的 `.listenOnly` 模式，**不消费、不拦截按键**，云游戏仍会收到复制指令。命中后等待与 Electron 默认一致的 **600ms**，再读取本机剪贴板、确认是装备文本、构造查询并打开市集。菜单栏“解析剪贴板”可跳过等待手动执行同一查价流程。
+
+需在“系统设置 → 隐私与安全性 → 辅助功能”中允许 PoeQuick（裸二进制开发运行时授权终端），授权后重启应用。未授权时菜单会提示“热键监听未授权”，不影响手动解析剪贴板。
+
 ## 体积
 
 | 组件 | 大小 |
 |---|---|
 | Swift 二进制（含 QuickJS）| ~1.7 MB |
 | core.js | ~44 KB |
-| cn-stats.compiled.js | ~740 KB |
+| cn-stats.compiled.js | ~1.0 MB |
 | **总计** | **~2.5 MB** |
 
 ## 性能
@@ -94,5 +101,5 @@ QuickJS 只支持 ES Module。esbuild 打包成单文件 ESM，同时 tree-shake
 
 - [ ] Windows C# + QuickJsWasi 壳（复用同一份 core.js）
 - [ ] 热更新：启动时从 CDN 拉取 core.js / compiled.js
-- [ ] 悬浮窗显示价格（SwiftUI Overlay）
+- [ ] 用菜单栏展示查价详情，保持无独立窗口
 - [ ] Release 构建 + 公证（Notarization）

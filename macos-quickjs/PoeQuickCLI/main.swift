@@ -1,8 +1,8 @@
 import Foundation
 
-// 命令行测试入口：验证 QuickJS + bjson + 解析器工作正常
+// 命令行测试入口：验证 QuickJS + JS 字面量词典 + 解析器工作正常
 // 用法：swift run PoeQuickCLI
-// 注意：这个 target 仅用于开发期验证，正式分发用 SwiftUI 菜单栏应用。
+// 注意：这个 target 仅用于开发期验证，正式分发用纯 AppKit 菜单栏应用。
 
 let host = QuickJSHost()
 do {

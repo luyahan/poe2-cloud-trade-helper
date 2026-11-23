@@ -14,7 +14,7 @@ let package = Package(
                 .product(name: "QuickJS", package: "QuickJS-Swift"),
             ],
             path: "PoeQuick",
-            exclude: ["Resources/core-entry.js", "Resources/zlib-stub.js", "Resources/cn-stats.qjs.bin"],
+            exclude: ["Resources/core-entry.js", "Resources/zlib-stub.js"],
             resources: [
                 .copy("Resources/core.js"),
                 .copy("Resources/cn-stats.compiled.js"),
@@ -27,7 +27,6 @@ let package = Package(
                 .product(name: "QuickJS", package: "QuickJS-Swift"),
             ],
             path: "PoeQuickCLI",
-            exclude: ["Resources/cn-stats.qjs.bin"],
             resources: [
                 .copy("Resources/core.js"),
                 .copy("Resources/cn-stats.compiled.js"),
