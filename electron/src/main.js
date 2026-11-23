@@ -44,12 +44,31 @@ function readBuildMeta() {
 
 // ---- 词典加载（userData 缓存 24h TTL → 打包内置词典 → 在线拉取）----
 async function loadDictionary(force = false) {
+  const { deserializeCompiled } = require('./lib/match-stats.js');
   const cacheFile = DICT_CACHE();
+  const compiledCacheFile = cacheFile.replace(/\.json$/, '.compiled.json');
+
+  // 1) 优先：预建索引 JSON 缓存（数组元组，new Map 重建）
+  if (!force && existsSync(compiledCacheFile)) {
+    try {
+      const { ts, data } = JSON.parse(readFileSync(compiledCacheFile, 'utf8'));
+      if (Date.now() - ts < 86400000) {
+        compiledDict = deserializeCompiled(data);
+        return compiledDict;
+      }
+    } catch { /* 缓存损坏，走后续路径 */ }
+  }
+  // 2) 兜底：原始 JSON 缓存（旧版），编译并写入 compiled.json
   if (!force && existsSync(cacheFile)) {
     try {
       const { ts, data } = JSON.parse(readFileSync(cacheFile, 'utf8'));
       if (Date.now() - ts < 86400000) {
         compiledDict = compileDictionary(data);
+        try {
+          const { serializeCompiled } = require('./lib/match-stats.js');
+          const serialized = serializeCompiled(compiledDict);
+          writeFileSync(compiledCacheFile, JSON.stringify({ ts: Date.now(), data: serialized }), 'utf8');
+        } catch { /* 写 compiled 失败不影响主流程 */ }
         return compiledDict;
       }
     } catch { /* 缓存损坏，重新拉 */ }
@@ -73,6 +92,13 @@ async function loadDictionary(force = false) {
     writeFileSync(cacheFile, JSON.stringify({ ts: Date.now(), data }), 'utf8');
   } catch (err) {
     // 在线失败 → 打包内置词典兜底（首次运行离线也能用）
+    // 优先 compiled.json（编译期预建，运行时只需 new Map 重建）；回退原始 .json
+    const bundledCompiled = join(BUNDLED_DATA(), 'cn-stats.compiled.json');
+    if (existsSync(bundledCompiled)) {
+      console.warn('[dict] 在线拉取失败，用打包内置 compiled.json：', err.message);
+      compiledDict = deserializeCompiled(JSON.parse(readFileSync(bundledCompiled, 'utf8')));
+      return compiledDict;
+    }
     const bundled = join(BUNDLED_DATA(), 'cn-stats.json');
     if (existsSync(bundled)) {
       console.warn('[dict] 在线拉取失败，用打包内置词典：', err.message);
@@ -82,6 +108,12 @@ async function loadDictionary(force = false) {
     }
   }
   compiledDict = compileDictionary(data);
+  // 把编译结果写入 compiled.json，下次启动直接 new Map 重建
+  try {
+    const { serializeCompiled } = require('./lib/match-stats.js');
+    const serialized = serializeCompiled(compiledDict);
+    writeFileSync(compiledCacheFile, JSON.stringify({ ts: Date.now(), data: serialized }), 'utf8');
+  } catch { /* 写 compiled 失败不影响主流程 */ }
   return compiledDict;
 }
 
