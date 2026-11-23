@@ -1,0 +1,14 @@
+{
+  "pins" : [
+    {
+      "identity" : "quickjs-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/zqqf16/QuickJS-Swift.git",
+      "state" : {
+        "revision" : "5f13d42d81c308d5b70786340c0cd113b78e6315",
+        "version" : "1.0.0"
+      }
+    }
+  ],
+  "version" : 2
+}

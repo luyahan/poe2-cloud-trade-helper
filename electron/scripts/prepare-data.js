@@ -48,41 +48,26 @@ async function fetchJson(path) {
   writeFileSync(join(OUT, 'cn-stats.compiled.json'), compiledJson);
   console.log(`[prepare] 索引 JSON OK：${(compiledJson.length / 1024).toFixed(1)} KB，编译耗时 ${Date.now() - t0} ms`);
 
-  // QuickJS JS_WriteObject 二进制（如果系统装了 qjs 工具）
-  // 用法：qjs 跑一个临时脚本，加载 compiled.json，调 std.writeObject 输出 .bin
-  const qjsBin = join(OUT, 'cn-stats.qjs.bin');
-  const qjsScript = join(OUT, '.build-qjs.js');
-  const qjsScriptContent = `
-const serialized = JSON.parse(std.loadFile(${JSON.stringify(join(OUT, 'cn-stats.compiled.json'))}));
-// 重建为 Map 结构（与 compileDictionary 同构）
-const compiled = {};
-for (const [groupId, tuples] of Object.entries(serialized)) {
-  const map = new Map();
-  for (const [key, value] of tuples) {
-    if (key === '__patterns__') map.set(key, new Map(value));
-    else map.set(key, value);
+  // 同时输出 JS 字面量（QuickJS 直接 evaluate，启动 ~5ms，比 JSON.parse 快）
+  // 格式：globalThis.compiledDict = { [groupId]: new Map([...]), ... }
+  // 注意：QuickJS bellard 原版的 JS_WriteObject 不支持 Map，所以用 JS 字面量代替。
+  const jsLiteral = `// 编译期生成的词典索引（勿手改）
+(function(){
+  const serialized = ${compiledJson};
+  const compiled = {};
+  for (const [groupId, tuples] of Object.entries(serialized)) {
+    const map = new Map();
+    for (const [key, value] of tuples) {
+      if (key === '__patterns__') map.set(key, new Map(value));
+      else map.set(key, value);
+    }
+    compiled[groupId] = map;
   }
-  compiled[groupId] = map;
-}
-// JS_WriteObject 序列化（QuickJS 原生格式，保留 Map）
-const bin = std.writeObject(compiled);
-const f = std.open(${JSON.stringify(qjsBin)}, 'wb');
-f.write(bin.buffer, 0, bin.byteLength);
-f.close();
-print('qjs.bin OK: ' + bin.byteLength + ' bytes');
+  globalThis.compiledDict = compiled;
+})();
 `;
-  writeFileSync(qjsScript, qjsScriptContent);
-  try {
-    // 优先 quickjs-ng 的 qjs，其次 bellard 原版 qjs
-    const qjsCmd = process.env.QJS_BIN || 'qjs';
-    execFileSync(qjsCmd, [qjsScript], { stdio: 'inherit' });
-    console.log(`[prepare] QuickJS bin OK → ${qjsBin}`);
-  } catch (err) {
-    console.warn(`[prepare] 跳过 QuickJS bin（qjs 不可用：${err.message}）`);
-    console.warn('[prepare] 安装：brew install quickjs-ng 或从 https://bellard.org/quickjs/ 编译');
-  } finally {
-    try { require('node:fs').unlinkSync(qjsScript); } catch {}
-  }
+  writeFileSync(join(OUT, 'cn-stats.compiled.js'), jsLiteral);
+  console.log(`[prepare] 索引 JS 字面量 OK：${(jsLiteral.length / 1024).toFixed(1)} KB`);
 
   console.log(`[prepare] 拉取联赛 https://${HOST}/api/trade2/data/leagues …`);
   const leagues = await fetchJson('/api/trade2/data/leagues');
