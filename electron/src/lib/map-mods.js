@@ -11,15 +11,28 @@
  */
 
 const MAP_FIELDS = [
-  { property: 'mapTier', filter: 'map_tier', label: '引路石阶级', integer: true },
-  { property: 'mapPackSize', filter: 'map_packsize', label: '怪物群大小', integer: false },
+  { property: 'mapTier', filter: 'map_tier', label: '引路石等阶', integer: true },
+  { property: 'mapPackSize', filter: 'map_packsize', label: '怪物群规模', integer: false },
   { property: 'mapMagicMonsters', filter: 'map_magic_monsters', label: '魔法怪物', integer: false },
   { property: 'mapRareMonsters', filter: 'map_rare_monsters', label: '稀有怪物', integer: false },
   { property: 'mapIir', filter: 'map_iir', label: '物品稀有度', integer: false },
-  { property: 'mapRevives', filter: 'map_revives', label: '挑战次数', integer: true },
-  { property: 'mapBonus', filter: 'map_bonus', label: '掉落几率', integer: false },
+  { property: 'mapRevives', filter: 'map_revives', label: '可用复活次数', integer: true },
+  { property: 'mapBonus', filter: 'map_bonus', label: '引路石掉落几率', integer: false },
   { property: 'mapGold', filter: 'map_gold', label: '金币', integer: false },
   { property: 'mapExperience', filter: 'map_experience', label: '经验', integer: false },
+];
+
+// 引路石词缀文本中出现、但国服 map_filters 视作面板属性的关键词。
+// 真实文本示例：「该区域内发现物品的稀有度提高 +35(30-40)%」「怪物群规模提高 26(20-30)%」。
+// 这些数值应累加到 map_filters，而不是作为词缀 id 筛选。
+const MOD_TO_FIELD = [
+  { property: 'mapIir', pattern: /(?:区域内发现物品的稀有度|物品稀有度)(?:提高|增加)\s*\+?([\d.]+)/ },
+  { property: 'mapPackSize', pattern: /怪物群(?:规模|大小)(?:提高|增加)\s*\+?([\d.]+)/ },
+  { property: 'mapMagicMonsters', pattern: /魔法怪物(?:数量)?(?:提高|增加)\s*\+?([\d.]+)/ },
+  { property: 'mapRareMonsters', pattern: /稀有怪物(?:数量)?(?:提高|增加)\s*\+?([\d.]+)/ },
+  { property: 'mapBonus', pattern: /引路石掉落几率(?:提高|增加)\s*\+?([\d.]+)/ },
+  { property: 'mapGold', pattern: /金币(?:提高|增加)\s*\+?([\d.]+)/ },
+  { property: 'mapExperience', pattern: /经验(?:提高|增加)\s*\+?([\d.]+)/ },
 ];
 
 function calcMapMods(item) {
@@ -34,7 +47,36 @@ function calcMapMods(item) {
       integer: def.integer,
       panel: value,
       value,
+      sources: ['panel'],
     };
+  }
+  // 引路石词缀中的面板属性：累加到对应 map_filters 字段。
+  for (const mod of item.mods || []) {
+    const lines = (mod.statLines || []).concat((mod.stats || []).map((s) => s.text || ''));
+    for (const line of lines) {
+      for (const rule of MOD_TO_FIELD) {
+        const m = line.match(rule.pattern);
+        if (!m) continue;
+        const value = Number(m[1]);
+        if (!Number.isFinite(value)) continue;
+        const def = MAP_FIELDS.find((f) => f.property === rule.property);
+        if (!def) continue;
+        if (!output[rule.property]) {
+          output[rule.property] = {
+            filter: def.filter,
+            label: def.label,
+            integer: def.integer,
+            panel: 0,
+            value: 0,
+            sources: [],
+          };
+        }
+        output[rule.property].value += value;
+        if (!output[rule.property].sources.includes('mod')) {
+          output[rule.property].sources.push('mod');
+        }
+      }
+    }
   }
   return Object.keys(output).length ? output : undefined;
 }

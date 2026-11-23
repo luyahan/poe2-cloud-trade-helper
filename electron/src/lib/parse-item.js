@@ -16,7 +16,7 @@
 // { [亵渎的|打造的|已破裂] 前缀属性|后缀属性|基底属性 ["名字"] (等阶：N) — tag1, tag2 }
 // 名字与等阶均可选：基底属性行无名字无 tier，如 { 基底属性 — 攻击 }
 const MOD_LINE =
-  /^\{\s*(?<special>亵渎的|打造的|已破裂|已工艺)?\s*(?<gen>前缀属性|后缀属性|固定词缀|基底属性|传奇属性|瓦尔传奇词缀)\s*(?:"(?<name>[^"]*)")?\s*(?:\(等阶：(?<tier>\d+)\))?\s*(?:\(阶级：(?<rank>\d+)\))?\s*(?:—\s*(?<tags>[^}]*))?\}$/;
+  /^\{\s*(?<special>亵渎的|打造的|已破裂|已工艺)?\s*(?<gen>前缀属性|后缀属性|前缀词缀|后缀词缀|固定词缀|基底属性|传奇属性|瓦尔传奇词缀)\s*(?:"(?<name>[^"]*)"|“(?<nameCN>[^”]*)”)?\s*(?:\(等阶：(?<tier>\d+)\))?\s*(?:\(阶级：(?<rank>\d+)\))?\s*(?:—\s*(?<tags>[^}]*))?\}$/;
 
 // 获得技能行（武器基底自带技能，如「获得技能: 战矛飞掷」）
 const GRANT_SKILL_LINE = /^获得技能:\s*(.+)$/;
@@ -116,7 +116,7 @@ function parseItemText(raw) {
   for (const line of lines) {
     let m;
     if ((m = line.match(/^物品类别:\s*(.+)$/))) item.category = m[1].trim();
-    else if ((m = line.match(/^稀有度:\s*(.+)$/))) item.rarity = m[1].trim();
+    else if ((m = line.match(/^稀\s*有\s*度:\s*(.+)$/))) item.rarity = m[1].trim();
     else if ((m = line.match(/^物品等级:\s*(\d+)/))) item.itemLevel = Number(m[1]);
     else if ((m = line.match(/^品质:\s*\+?(\d+)%/))) item.quality = Number(m[1]);
     else if ((m = line.match(/^护甲:\s*(\d+)/))) item.properties.armour = Number(m[1]);
@@ -127,13 +127,13 @@ function parseItemText(raw) {
     else if ((m = line.match(/^精魂:\s*(\d+)/))) item.properties.spirit = Number(m[1]);
     else if ((m = line.match(/^插槽:\s*(.+)$/))) item.sockets = m[1].trim();
     // 引路石面板字段（map_filters）
-    else if ((m = line.match(/^引路石阶级:\s*(\d+)/))) item.properties.mapTier = Number(m[1]);
+    else if ((m = line.match(/^(?:引路石)?等阶:\s*(\d+)/))) item.properties.mapTier = Number(m[1]);
     else if ((m = line.match(/^怪物群大小:\s*\+?([\d.]+)%/))) item.properties.mapPackSize = Number(m[1]);
     else if ((m = line.match(/^魔法怪物:\s*\+?([\d.]+)%/))) item.properties.mapMagicMonsters = Number(m[1]);
     else if ((m = line.match(/^稀有怪物:\s*\+?([\d.]+)%/))) item.properties.mapRareMonsters = Number(m[1]);
     else if ((m = line.match(/^物品稀有度:\s*\+?([\d.]+)%/))) item.properties.mapIir = Number(m[1]);
-    else if ((m = line.match(/^挑战次数:\s*(\d+)/))) item.properties.mapRevives = Number(m[1]);
-    else if ((m = line.match(/^掉落几率:\s*\+?([\d.]+)%/))) item.properties.mapBonus = Number(m[1]);
+    else if ((m = line.match(/^(?:可用)?(?:复活|挑战)次数:\s*(\d+)/))) item.properties.mapRevives = Number(m[1]);
+    else if ((m = line.match(/^(?:引路石)?掉落几率:\s*\+?([\d.]+)%/))) item.properties.mapBonus = Number(m[1]);
     else if ((m = line.match(/^金币:\s*\+?([\d.]+)%/))) item.properties.mapGold = Number(m[1]);
     else if ((m = line.match(/^经验:\s*\+?([\d.]+)%/))) item.properties.mapExperience = Number(m[1]);
     else if ((m = line.match(/^物理伤害:\s*(\d+)-(\d+)/)))
@@ -148,7 +148,7 @@ function parseItemText(raw) {
   }
 
   // 名称：稀有度行之后、第一条分隔线之前的非字段行
-  const rarityIdx = lines.findIndex((l) => /^稀有度:/.test(l));
+  const rarityIdx = lines.findIndex((l) => /^稀\s*有\s*度:/.test(l));
   if (rarityIdx >= 0) {
     const nameLines = [];
     for (let i = rarityIdx + 1; i < lines.length; i++) {
@@ -194,8 +194,8 @@ function parseItemText(raw) {
             : g.special === '已破裂' ? 'Fractured'
             : isBase ? 'Implicit'
             : 'Explicit',
-        generation: g.gen === '前缀属性' ? 'prefix' : g.gen === '后缀属性' ? 'suffix' : 'implicit',
-        name: g.name || undefined,
+        generation: /^(前缀属性|前缀词缀)$/.test(g.gen) ? 'prefix' : /^(后缀属性|后缀词缀)$/.test(g.gen) ? 'suffix' : 'implicit',
+        name: g.name || g.nameCN || undefined,
         tier: g.tier ? Number(g.tier) : undefined,
         rank: g.rank ? Number(g.rank) : undefined,
         tags: g.tags ? g.tags.split(',').map((s) => s.trim()).filter(Boolean) : [],
