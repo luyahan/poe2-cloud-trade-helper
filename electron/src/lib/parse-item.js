@@ -128,9 +128,9 @@ function parseItemText(raw) {
     else if ((m = line.match(/^插槽:\s*(.+)$/))) item.sockets = m[1].trim();
     // 引路石面板字段（map_filters）
     else if ((m = line.match(/^(?:引路石)?等阶:\s*(\d+)/))) item.properties.mapTier = Number(m[1]);
-    else if ((m = line.match(/^怪物群大小:\s*\+?([\d.]+)%/))) item.properties.mapPackSize = Number(m[1]);
-    else if ((m = line.match(/^魔法怪物:\s*\+?([\d.]+)%/))) item.properties.mapMagicMonsters = Number(m[1]);
-    else if ((m = line.match(/^稀有怪物:\s*\+?([\d.]+)%/))) item.properties.mapRareMonsters = Number(m[1]);
+    else if ((m = line.match(/^怪物群(?:大小|规模):\s*\+?([\d.]+)%/))) item.properties.mapPackSize = Number(m[1]);
+    else if ((m = line.match(/^魔法怪物(?:数量)?:\s*\+?([\d.]+)%/))) item.properties.mapMagicMonsters = Number(m[1]);
+    else if ((m = line.match(/^稀有怪物(?:数量)?:\s*\+?([\d.]+)%/))) item.properties.mapRareMonsters = Number(m[1]);
     else if ((m = line.match(/^物品稀有度:\s*\+?([\d.]+)%/))) item.properties.mapIir = Number(m[1]);
     else if ((m = line.match(/^(?:可用)?(?:复活|挑战)次数:\s*(\d+)/))) item.properties.mapRevives = Number(m[1]);
     else if ((m = line.match(/^(?:引路石)?掉落几率:\s*\+?([\d.]+)%/))) item.properties.mapBonus = Number(m[1]);

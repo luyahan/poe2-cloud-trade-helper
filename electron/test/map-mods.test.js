@@ -112,3 +112,50 @@ test('引路石：calcMapMods 只返回有面板/词缀的字段', () => {
   const mods = calcMapMods(item);
   assert.deepEqual(Object.keys(mods).sort(), ['mapRevives', 'mapTier']);
 });
+
+test('引路石：面板 augmented 已含词缀加成时不重复累加', () => {
+  const text = `物品类别: 引路石
+稀 有 度: 稀有
+终焉深渊
+引路石 (等阶 16)
+--------
+引路石等阶: 16
+可用复活次数: 0
+怪物群规模: +30% (augmented)
+稀有怪物: +60% (augmented)
+引路石掉落几率: +210% (augmented)
+--------
+物品等级: 80
+--------
+{ 前缀词缀“丰饶的” }
+该区域内发现物品的稀有度提高 +38(30-40)%
+{ 前缀词缀“密集的” }
+怪物群规模提高 30(20-30)%
+{ 前缀词缀“暴虐的” }
+稀有怪物数量提高 60(50-70)%
+{ 后缀词缀“之深渊” }
+该区域含有深渊裂隙 (desecrated)
+深渊怪物造成的伤害提高 25(20-30)% (desecrated)
+--------
+已腐化`;
+  const item = parseItemText(text);
+  // 面板字段全部解析
+  assert.equal(item.properties.mapPackSize, 30);
+  assert.equal(item.properties.mapRareMonsters, 60);
+  assert.equal(item.properties.mapRevives, 0);
+  const matched = matchItem(item, compiled);
+  const { query, mapMods } = buildQuery(item, matched, {});
+  // 面板已含词缀加成 → 只取面板值，不累加
+  assert.equal(mapMods.mapPackSize.value, 30);
+  assert.equal(mapMods.mapRareMonsters.value, 60);
+  assert.deepEqual(mapMods.mapPackSize.sources, ['panel']);
+  assert.deepEqual(mapMods.mapRareMonsters.sources, ['panel']);
+  // 面板缺失的物品稀有度才用词缀累加
+  assert.equal(mapMods.mapIir.value, 38);
+  assert.deepEqual(mapMods.mapIir.sources, ['mod']);
+  // 复活 0 次是合法值
+  assert.equal(mapMods.mapRevives.value, 0);
+  assert.equal(query.filters.map_filters.filters.map_revives.min, 0);
+  assert.equal(query.filters.map_filters.filters.map_packsize.min, 29);
+  assert.equal(query.filters.map_filters.filters.map_rare_monsters.min, 58);
+});

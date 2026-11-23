@@ -40,7 +40,9 @@ function calcMapMods(item) {
   const output = {};
   for (const def of MAP_FIELDS) {
     const value = props[def.property];
-    if (!Number.isFinite(value) || value <= 0) continue;
+    // 0 对复活次数等是合法值；其他百分比字段 0 视为无意义。
+    if (!Number.isFinite(value)) continue;
+    if (value <= 0 && def.property !== 'mapRevives') continue;
     output[def.property] = {
       filter: def.filter,
       label: def.label,
@@ -50,7 +52,9 @@ function calcMapMods(item) {
       sources: ['panel'],
     };
   }
-  // 引路石词缀中的面板属性：累加到对应 map_filters 字段。
+  // 引路石词缀中的面板属性：
+  //   - 面板已有该字段时，augmented 值已包含词缀加成，跳过不累加。
+  //   - 面板缺失时，把词缀值作为该字段的下限估计。
   for (const mod of item.mods || []) {
     const lines = (mod.statLines || []).concat((mod.stats || []).map((s) => s.text || ''));
     for (const line of lines) {
@@ -61,6 +65,7 @@ function calcMapMods(item) {
         if (!Number.isFinite(value)) continue;
         const def = MAP_FIELDS.find((f) => f.property === rule.property);
         if (!def) continue;
+        if (output[rule.property]?.sources.includes('panel')) continue; // 面板优先
         if (!output[rule.property]) {
           output[rule.property] = {
             filter: def.filter,
