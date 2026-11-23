@@ -126,6 +126,16 @@ function parseItemText(raw) {
     else if ((m = line.match(/^格挡(?:几率|率)?:\s*([\d.]+)%/))) item.properties.block = Number(m[1]);
     else if ((m = line.match(/^精魂:\s*(\d+)/))) item.properties.spirit = Number(m[1]);
     else if ((m = line.match(/^插槽:\s*(.+)$/))) item.sockets = m[1].trim();
+    // 引路石面板字段（map_filters）
+    else if ((m = line.match(/^引路石阶级:\s*(\d+)/))) item.properties.mapTier = Number(m[1]);
+    else if ((m = line.match(/^怪物群大小:\s*\+?([\d.]+)%/))) item.properties.mapPackSize = Number(m[1]);
+    else if ((m = line.match(/^魔法怪物:\s*\+?([\d.]+)%/))) item.properties.mapMagicMonsters = Number(m[1]);
+    else if ((m = line.match(/^稀有怪物:\s*\+?([\d.]+)%/))) item.properties.mapRareMonsters = Number(m[1]);
+    else if ((m = line.match(/^物品稀有度:\s*\+?([\d.]+)%/))) item.properties.mapIir = Number(m[1]);
+    else if ((m = line.match(/^挑战次数:\s*(\d+)/))) item.properties.mapRevives = Number(m[1]);
+    else if ((m = line.match(/^掉落几率:\s*\+?([\d.]+)%/))) item.properties.mapBonus = Number(m[1]);
+    else if ((m = line.match(/^金币:\s*\+?([\d.]+)%/))) item.properties.mapGold = Number(m[1]);
+    else if ((m = line.match(/^经验:\s*\+?([\d.]+)%/))) item.properties.mapExperience = Number(m[1]);
     else if ((m = line.match(/^物理伤害:\s*(\d+)-(\d+)/)))
       item.properties.physicalDamage = { min: Number(m[1]), max: Number(m[2]) };
     else if ((m = line.match(/^暴击率:\s*([\d.]+)%/)))

@@ -74,6 +74,7 @@ function rollValue(stat, match) {
  */
 const { addDpsFilters } = require('./lib/weapon-dps.js');
 const { addDefenceFilters } = require('./lib/defences.js');
+const { addMapFilters } = require('./lib/map-mods.js');
 
 function buildQuery(parsedItem, matched, opts = {}) {
   const {
@@ -93,7 +94,10 @@ function buildQuery(parsedItem, matched, opts = {}) {
     seen.add(dedupKey);
 
     let disabled;
-    if (parsedItem.rarity === '传奇') {
+    // 引路石：买家只关心 map_filters 面板字段，词缀默认全部禁用，避免 AND 过严搜不到。
+    if (parsedItem.category === '引路石') {
+      disabled = true;
+    } else if (parsedItem.rarity === '传奇') {
       // 传奇的符文是可替换的附加属性，不属于固有传奇词缀；默认不缩小同款结果。
       disabled = mod.type === 'Rune' || (mod.tier == null && mod.type !== 'Explicit' && !includeUntiered);
     } else if (mod.tier != null) {
@@ -153,8 +157,9 @@ function buildQuery(parsedItem, matched, opts = {}) {
   // 计算值保留在返回值，写入市集的 min 由独立 threshold 逻辑计算。
   const weaponDps = addDpsFilters(query, parsedItem, opts);
   const defences = addDefenceFilters(query, parsedItem, opts, matched);
+  const mapMods = addMapFilters(query, parsedItem, opts);
 
-  return { query, league, weaponDps, defences };
+  return { query, league, weaponDps, defences, mapMods };
 }
 
 /**

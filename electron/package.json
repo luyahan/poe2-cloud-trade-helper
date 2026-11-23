@@ -7,7 +7,7 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test test/*.test.js",
-    "check": "node --check src/main.js && node --check src/hotkey.js && node --check src/clipboard.js && node --check src/query.js && node --check src/settings.js && node --check src/lib/parse-item.js && node --check src/lib/weapon-dps.js && node --check src/lib/defences.js && node --check src/lib/match-stats.js && node --check scripts/prepare-data.js",
+    "check": "node --check src/main.js && node --check src/hotkey.js && node --check src/clipboard.js && node --check src/query.js && node --check src/settings.js && node --check src/lib/parse-item.js && node --check src/lib/weapon-dps.js && node --check src/lib/defences.js && node --check src/lib/map-mods.js && node --check src/lib/match-stats.js && node --check scripts/prepare-data.js",
     "prepare-data": "node scripts/prepare-data.js",
     "predist": "npm run check && npm test && npm run prepare-data",
     "dist": "electron-builder --mac dir --arm64 && node scripts/sign-app.js",
