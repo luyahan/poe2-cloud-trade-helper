@@ -44,12 +44,35 @@ function readBuildMeta() {
 
 // ---- 词典加载（userData 缓存 24h TTL → 打包内置词典 → 在线拉取）----
 async function loadDictionary(force = false) {
+  const v8 = require('node:v8');
   const cacheFile = DICT_CACHE();
+  const binCacheFile = cacheFile.replace(/\.json$/, '.bin');
+
+  // 1) 优先：v8.serialize 的 compiledDictionary 缓存（运行时反序列化零编译）
+  if (!force && existsSync(binCacheFile)) {
+    try {
+      const buf = readFileSync(binCacheFile);
+      // 文件头 8 字节存时间戳，其余是 v8.serialize 产物
+      const ts = Number(buf.readBigUInt64BE(0));
+      if (Date.now() - ts < 86400000) {
+        compiledDict = v8.deserialize(buf.subarray(8));
+        return compiledDict;
+      }
+    } catch { /* 缓存损坏，走后续路径 */ }
+  }
+  // 2) 兜底：JSON 缓存（旧版/无 bin 时），编译并写入 bin
   if (!force && existsSync(cacheFile)) {
     try {
       const { ts, data } = JSON.parse(readFileSync(cacheFile, 'utf8'));
       if (Date.now() - ts < 86400000) {
         compiledDict = compileDictionary(data);
+        try {
+          const bin = v8.serialize(compiledDict);
+          const out = Buffer.alloc(8 + bin.length);
+          out.writeBigUInt64BE(BigInt(Date.now()), 0);
+          bin.copy(out, 8);
+          writeFileSync(binCacheFile, out);
+        } catch { /* 写 bin 失败不影响主流程 */ }
         return compiledDict;
       }
     } catch { /* 缓存损坏，重新拉 */ }
@@ -73,6 +96,13 @@ async function loadDictionary(force = false) {
     writeFileSync(cacheFile, JSON.stringify({ ts: Date.now(), data }), 'utf8');
   } catch (err) {
     // 在线失败 → 打包内置词典兜底（首次运行离线也能用）
+    // 优先 .bin（编译期预建，零运行时编译）；回退 .json
+    const bundledBin = join(BUNDLED_DATA(), 'cn-stats.compiled.bin');
+    if (existsSync(bundledBin)) {
+      console.warn('[dict] 在线拉取失败，用打包内置 compiled.bin：', err.message);
+      compiledDict = v8.deserialize(readFileSync(bundledBin));
+      return compiledDict;
+    }
     const bundled = join(BUNDLED_DATA(), 'cn-stats.json');
     if (existsSync(bundled)) {
       console.warn('[dict] 在线拉取失败，用打包内置词典：', err.message);
@@ -82,6 +112,14 @@ async function loadDictionary(force = false) {
     }
   }
   compiledDict = compileDictionary(data);
+  // 把编译结果写入 bin，下次启动直接 deserialize
+  try {
+    const bin = v8.serialize(compiledDict);
+    const out = Buffer.alloc(8 + bin.length);
+    out.writeBigUInt64BE(BigInt(Date.now()), 0);
+    bin.copy(out, 8);
+    writeFileSync(binCacheFile, out);
+  } catch { /* 写 bin 失败不影响主流程 */ }
   return compiledDict;
 }
 
