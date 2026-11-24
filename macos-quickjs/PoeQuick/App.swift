@@ -25,7 +25,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 先创建菜单栏入口，即使脚本初始化失败也允许重载和退出。
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "PoE 查价")
+            button.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "PoE2 查价助手")
         }
         rebuildMenu()
 

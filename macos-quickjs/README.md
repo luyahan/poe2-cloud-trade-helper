@@ -34,15 +34,27 @@
 # 前置：词典数据由仓库根统一生成（首次或换了赛季时跑一次）
 (cd .. && npm run prepare-data)
 
-# build.sh 内部完成：esbuild 打 core.js → 同步词典 → swift build
+# build.sh 内部完成：esbuild 打 core.js → 同步词典 → swift build → 打包 PoE2PriceHelper.app
 ./build.sh
 
 # 运行 CLI 验证（解析 → 匹配 → 构造查询 → 出 URL）
 ./.build/debug/PoeQuickCLI
 
-# 运行菜单栏应用
-./.build/debug/PoeQuick
+# 运行菜单栏应用（两种方式，任选其一）
+./.build/debug/PoeQuick        # 裸二进制，日志打到 stdout
+open PoE2PriceHelper.app      # .app bundle，双击即开、可 Spotlight/程序坞启动
 ```
+
+> **`.app` 与裸二进制的区别**：两者跑的是同一份编译产物，Swift 侧
+> `Bundle.main` 优先读 `.app` 内资源、回落到 `Bundle.module`（SwiftPM 资源包）。
+> `PoE2PriceHelper.app` 由 `build.sh` 末尾自动拼装（Info.plist 模板 + 二进制 + 资源 +
+> ad-hoc 签名），是**构建产物**，被根 `.gitignore` 的 `*.app` 忽略、不入库；
+> 入库的是 `Info.plist` 模板。
+>
+> **命名**：`.app` 文件名用英文 `PoE2PriceHelper`（命令行 `open`、脚本路径免转义），
+> Finder / 菜单栏 / 程序坞显示的是 `CFBundleDisplayName` = **「PoE2 查价助手」**；
+> 内部二进制与 SwiftPM target 仍叫 `PoeQuick`（牵扯源目录、资源加载、签名，不动）。
+> 日常想双击启动、加到登录项用 `.app`；想在终端看实时日志用裸二进制。
 
 > `build.sh` 里 `swift build` 带 `--disable-sandbox`：SwiftPM 在受限环境
 > （CI、sandbox 内）无法 apply 自身沙箱，会报 `Invalid manifest`。

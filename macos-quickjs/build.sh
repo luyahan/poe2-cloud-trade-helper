@@ -46,3 +46,25 @@ echo "[build] 编译 Swift…"
 # --disable-sandbox：SwiftPM 在受限环境（CI/沙箱）里无法 apply 自身沙箱，会报 Invalid manifest
 swift build --disable-sandbox
 ls -lh PoeQuick/Resources/core.js PoeQuick/Resources/cn-stats.compiled.js .build/debug/PoeQuick
+
+# ── 打包 .app ────────────────────────────────────────────────────────────
+# SwiftPM 只产出裸可执行文件，这里套一个 bundle 壳，得到可双击启动 / open 启动的
+# PoE2PriceHelper.app（Finder / 菜单栏 / 程序坞显示 CFBundleDisplayName
+# 「PoE2 查价助手」）。.app 是构建产物，被根 .gitignore 的 *.app 忽略，不入库；
+# 入库的是 Info.plist 模板。Swift 侧 Bundle.main 优先读 .app 内资源，
+# 回落到 Bundle.module（裸二进制走 SwiftPM 资源包），两种形态共用同一份代码。
+# 文件名用英文（命令行 open / 脚本路径免转义），显示名用中文。
+echo "[build] 打包 PoE2PriceHelper.app…"
+APP="PoE2PriceHelper.app"
+BIN=".build/debug/PoeQuick"
+rm -rf "$APP"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp Info.plist "$APP/Contents/Info.plist"
+cp "$BIN" "$APP/Contents/MacOS/PoeQuick"
+cp PoeQuick/Resources/core.js "$APP/Contents/Resources/core.js"
+cp PoeQuick/Resources/cn-stats.compiled.js "$APP/Contents/Resources/cn-stats.compiled.js"
+# ad-hoc 签名：本地开发足够，无开发者证书也能通过 Gatekeeper 的本机校验。
+codesign --force --deep --sign - "$APP" 2>/dev/null || \
+  echo "[build] 警告：codesign 失败，.app 仍可直接运行（仅本机）" >&2
+echo "[build] 完成：$APP（双击或 open $APP 启动）"
+ls -lh "$APP/Contents/MacOS/PoeQuick"
