@@ -46,6 +46,7 @@ function isFlavourText(text) {
   if (/\((rune|implicit|enchant|crafted|fractured|desecrated|augmented)\)/.test(text)) return false;
   if (/^获得技能:/.test(text)) return false;
   if (/^被腐化/.test(text)) return false;
+  if (/^未鉴定/.test(text)) return false;
   // 含数值（roll 区间）的一定不是 flavour text
   if (/\d/.test(text)) return false;
   // 中文叙事句：以中文逗号/句号结尾，或整行都是中文字符
@@ -143,6 +144,7 @@ function parseItemText(raw) {
     else if ((m = line.match(/^每秒攻击次数:\s*([\d.]+)/)))
       item.properties.attackSpeed = Number(m[1]);
     else if (/^被腐化/.test(line)) item.corrupted = true;
+    else if (/^未鉴定/.test(line)) item.unidentified = true;
     else if ((m = line.match(/^元素伤害:\s*(.+)$/)))
       item.properties.elementalDamage = m[1].trim();
   }
@@ -220,6 +222,7 @@ function parseItemText(raw) {
     if (/^引路石掉落/.test(trimmed)) continue;
     // 腐化标记：不是词缀，设 item 标志并终止词缀区（后面可能还有 flavour text）
     if (/^被腐化/.test(trimmed)) { item.corrupted = true; continue; }
+    if (/^未鉴定/.test(trimmed)) { item.unidentified = true; continue; }
     // flavour text（传奇装备底部的背景描述）：连续中文句子、不含数值/词缀标记，
     // 出现在最后一段分隔区（最后一个 {} 词缀之后）。用「不以 { 开头且不含 (rune) 等
     // 标记、且当前词缀已有 statLines」来判定——flavour text 不属于任何词缀。

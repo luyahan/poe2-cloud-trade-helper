@@ -399,6 +399,7 @@ var require_parse_item = __commonJS({
       if (/\((rune|implicit|enchant|crafted|fractured|desecrated|augmented)\)/.test(text)) return false;
       if (/^获得技能:/.test(text)) return false;
       if (/^被腐化/.test(text)) return false;
+      if (/^未鉴定/.test(text)) return false;
       if (/\d/.test(text)) return false;
       return /[，。]$/.test(text) || /^[一-龥，。、；：""''（）\s]+$/.test(text);
     }
@@ -472,6 +473,7 @@ var require_parse_item = __commonJS({
         else if (m = line.match(/^每秒攻击次数:\s*([\d.]+)/))
           item.properties.attackSpeed = Number(m[1]);
         else if (/^被腐化/.test(line)) item.corrupted = true;
+        else if (/^未鉴定/.test(line)) item.unidentified = true;
         else if (m = line.match(/^元素伤害:\s*(.+)$/))
           item.properties.elementalDamage = m[1].trim();
       }
@@ -547,6 +549,10 @@ var require_parse_item = __commonJS({
         if (/^引路石掉落/.test(trimmed)) continue;
         if (/^被腐化/.test(trimmed)) {
           item.corrupted = true;
+          continue;
+        }
+        if (/^未鉴定/.test(trimmed)) {
+          item.unidentified = true;
           continue;
         }
         if (current && current.statLines.length > 0 && isFlavourText(trimmed)) {
@@ -1246,6 +1252,16 @@ var require_query = __commonJS({
       if (parsedItem.itemLevel != null && parsedItem.rarity !== "\u4F20\u5947") {
         (_b = query.filters).type_filters ?? (_b.type_filters = { filters: {} });
         query.filters.type_filters.filters.ilvl = { min: parsedItem.itemLevel };
+      }
+      if (parsedItem.rarity === "\u4F20\u5947") {
+        const unidentified = !!parsedItem.unidentified;
+        query.filters.misc_filters = {
+          disabled: false,
+          filters: {
+            corrupted: { option: unidentified ? null : parsedItem.corrupted ? "true" : "false" },
+            identified: { option: unidentified ? "false" : "true" }
+          }
+        };
       }
       const weaponDps = addDpsFilters(query, parsedItem, opts);
       const defences = addDefenceFilters(query, parsedItem, opts, matched);

@@ -230,3 +230,41 @@ test('仇恨熔炉：传奇名与基底分列，符文和 ilvl 默认不限制',
   assert.equal(filters.find(f => f.id === 'explicit.stat_1181501418').value.min, -10);
   assert.equal(filters.filter(f => f.id.startsWith('rune.')).every(f => f.disabled), true);
 });
+
+// 传奇腐化/鉴定筛选，按「是否已鉴定」分两种情况：
+//   已鉴定：identified=true；corrupted 跟随「被腐化」（有→true，无→false）。
+//   未鉴定：identified=false；corrupted=any（null，未鉴定看不出腐化状态）。
+// 字段写法与位置经真实国服 URL 确认（misc_filters.filters.{corrupted,identified}）。
+test('仇恨熔炉：已鉴定已腐化传奇写 corrupted=true + identified=true', () => {
+  const p = parseItemText(hateforge);
+  const { query } = buildQuery(p, matchItem(p, compiled), {});
+  assert.deepEqual(query.filters.misc_filters, {
+    disabled: false,
+    filters: {
+      corrupted: { option: 'true' },
+      identified: { option: 'true' },
+    },
+  });
+});
+
+test('传奇：已鉴定未腐化（无「被腐化」行）写 corrupted=false + identified=true', () => {
+  const p = parseItemText(hateforge.replace(/^被腐化\s*$/m, ''));
+  assert.ok(!p.corrupted, '去掉「被腐化」行后不应标记腐化');
+  const { query } = buildQuery(p, matchItem(p, compiled), {});
+  assert.deepEqual(query.filters.misc_filters.filters.corrupted, { option: 'false' });
+  assert.deepEqual(query.filters.misc_filters.filters.identified, { option: 'true' });
+});
+
+test('传奇：未鉴定写 identified=false + corrupted=any', () => {
+  const p = parseItemText(hateforge + '\n未鉴定');
+  assert.equal(p.unidentified, true, '「未鉴定」行应被解析');
+  const { query } = buildQuery(p, matchItem(p, compiled), {});
+  assert.deepEqual(query.filters.misc_filters.filters.identified, { option: 'false' });
+  assert.deepEqual(query.filters.misc_filters.filters.corrupted, { option: null });
+});
+
+test('非传奇：不写 misc_filters 腐化/鉴定筛选', () => {
+  const p = parseItemText(sample); // 稀有装备
+  const { query } = buildQuery(p, matchItem(p, compiled), {});
+  assert.equal(query.filters.misc_filters, undefined);
+});

@@ -172,6 +172,24 @@ function buildQuery(parsedItem, matched, opts = {}) {
     query.filters.type_filters.filters.ilvl = { min: parsedItem.itemLevel };
   }
 
+  // 传奇：腐化 + 鉴定状态筛选（misc_filters）。按「是否已鉴定」分两种情况：
+  //   已鉴定（无「未鉴定」）：identified=true；corrupted 跟随「被腐化」关键词
+  //     （有→true，无→false）。被腐化的装备一定已鉴定，故 identified 恒 true。
+  //   未鉴定（含「未鉴定」）：identified=false；corrupted=any（null）——
+  //     未鉴定看不出腐化状态，不限制。
+  // 字段写法与位置经真实国服 URL 确认：misc_filters.filters.{corrupted,identified}
+  // 各为 { option: 'true'|'false'|null }，组级 disabled: false。
+  if (parsedItem.rarity === '传奇') {
+    const unidentified = !!parsedItem.unidentified;
+    query.filters.misc_filters = {
+      disabled: false,
+      filters: {
+        corrupted: { option: unidentified ? null : (parsedItem.corrupted ? 'true' : 'false') },
+        identified: { option: unidentified ? 'false' : 'true' },
+      },
+    };
+  }
+
   // 武器 DPS 默认开启；可修改武器按 q20 物理 + 火/冰/电，不含暴击/混沌/装填。
   // 计算值保留在返回值，写入市集的 min 由独立 threshold 逻辑计算。
   const weaponDps = addDpsFilters(query, parsedItem, opts);
