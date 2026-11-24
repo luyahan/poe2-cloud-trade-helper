@@ -40,6 +40,18 @@
 # 运行 CLI 验证（解析 → 匹配 → 构造查询 → 出 URL）
 ./.build/debug/PoeQuickCLI
 
+# 查看 CLI 用法（无参数时跑内置样本自检）
+./.build/debug/PoeQuickCLI --help   # 或 -h
+
+# 指定装备文本文件 / 联赛，或从 stdin 读文本
+./.build/debug/PoeQuickCLI ../data/sample-hateforge.txt
+./.build/debug/PoeQuickCLI -l 永久 ../data/sample-spear.txt
+cat ../data/sample-item.txt | ./.build/debug/PoeQuickCLI -
+
+# 带 POESESSID 时额外调用交易 API，打印前 10 个挂单的价格/卖家
+POESESSID=xxx ./.build/debug/PoeQuickCLI ../data/sample-item.txt
+./.build/debug/PoeQuickCLI --poessid xxx ../data/sample-item.txt   # 等价，但会留在 shell 历史
+
 # 运行菜单栏应用（两种方式，任选其一）
 ./.build/debug/PoeQuick        # 裸二进制，日志打到 stdout
 open PoE2PriceHelper.app      # .app bundle，双击即开、可 Spotlight/程序坞启动

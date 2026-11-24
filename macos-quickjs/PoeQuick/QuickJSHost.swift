@@ -8,43 +8,37 @@ class QuickJSHost {
 
     func setup() throws {
         log("创建 JSRuntime")
-        runtime = JSRuntime(options: JSRuntimeOptions(
+        // 先在局部变量里完成初始化，全部成功后才替换旧实例：
+        // 1) 重载失败时旧 Runtime/Context 仍可用；
+        // 2) 旧 Context 的析构发生在赋值之后，避免半初始化对象被释放。
+        let newRuntime = JSRuntime(options: JSRuntimeOptions(
             memoryLimit: 32 * 1024 * 1024,
             enableStdModules: true,
             enableHelpers: true
         ))!
-        context = runtime.createContext()!
+        let newContext = newRuntime.createContext()!
 
-        context.module("Host") {
-            JSModuleFunction("log", argc: 1) { ctx, _, _, argv in
-                if let argv = argv, let value = JSValue(ctx, value: argv[0]) {
-                    print("[JS] \(value.string ?? "")")
-                }
-                return nil
-            }
-            JSModuleFunction("openURL", argc: 1) { ctx, _, _, argv in
-                if let argv = argv, let value = JSValue(ctx, value: argv[0]),
-                   let urlString = value.string, let url = URL(string: urlString) {
-                    DispatchQueue.main.async {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-                return nil
-            }
-        }
+        // 注意：不要再注册 Host 模块。core.js 已打包为自包含脚本，不使用 Host；
+        // 而 QuickJS-Swift 的 JSContext 析构会按声明顺序先释放 runtime，
+        // 再释放 modules/hostFunctions 里的 JSFunction。若这里注册了模块，
+        // JS_FreeRuntime 时这些 JS 对象仍在 gc_obj_list 中，触发断言崩溃。
 
         // 裸二进制使用 SwiftPM 的 Bundle.module；.app 优先读取 Bundle.main。
         let coreURL = try resourceURL(name: "core", extension: "js")
         log("加载 core.js：\(coreURL.path)")
         let coreSource = try String(contentsOf: coreURL, encoding: .utf8)
         // core.js 为自包含脚本，按全局脚本执行，避免模块加载器异步执行。
-        _ = try context.evaluate(coreSource, options: EvalOptions(filename: coreURL.path))
+        _ = try newContext.evaluate(coreSource, options: EvalOptions(filename: coreURL.path))
 
         // 编译期生成的 JS 字面量，不依赖 QuickJS 私有的二进制格式。
         let dictURL = try resourceURL(name: "cn-stats.compiled", extension: "js")
         log("加载词典：\(dictURL.path)")
         let dictSource = try String(contentsOf: dictURL, encoding: .utf8)
-        _ = try context.evaluate(dictSource, options: EvalOptions(filename: dictURL.path))
+        _ = try newContext.evaluate(dictSource, options: EvalOptions(filename: dictURL.path))
+
+        // 全部加载成功后再原子替换，旧 Context 会在这里被释放。
+        runtime = newRuntime
+        context = newContext
     }
 
     private func resourceURL(name: String, extension ext: String) throws -> URL {

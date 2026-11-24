@@ -7,33 +7,15 @@ class QuickJSHost {
     var context: JSContext!
 
     func setup() throws {
-        // 创建 Runtime（限制内存 32 MB）
-        runtime = JSRuntime(options: JSRuntimeOptions(
+        // 创建 Runtime（限制内存 32 MB）。与 App target 一样，全部加载成功后
+        // 才替换旧实例；同时不要注册 Host 模块，避免 JSContext 析构顺序触发
+        // QuickJS 的 gc_obj_list 断言。
+        let newRuntime = JSRuntime(options: JSRuntimeOptions(
             memoryLimit: 32 * 1024 * 1024,
             enableStdModules: true,
             enableHelpers: true
         ))!
-        context = runtime.createContext()!
-
-        // 注入宿主模块 Host
-        context.module("Host") {
-            JSModuleFunction("log", argc: 1) { ctx, _, _, argv in
-                if let argv = argv, let v = JSValue(ctx, value: argv[0]) {
-                    print("[JS] \(v.string ?? "")")
-                }
-                return nil
-            }
-            JSModuleFunction("openURL", argc: 1) { ctx, _, _, argv in
-                if let argv = argv, let v = JSValue(ctx, value: argv[0]) {
-                    if let urlStr = v.string, let url = URL(string: urlStr) {
-                        DispatchQueue.main.async {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                }
-                return nil
-            }
-        }
+        let newContext = newRuntime.createContext()!
 
         // 加载 core.js（解析器 + 查询构造）
         guard let coreURL = Bundle.module.url(forResource: "core", withExtension: "js"),
@@ -41,7 +23,7 @@ class QuickJSHost {
             throw NSError(domain: "PoeQuick", code: 1, userInfo: [NSLocalizedDescriptionKey: "core.js 未找到"])
         }
         do {
-            _ = try context.evaluate(coreSource, options: EvalOptions(type: .module))
+            _ = try newContext.evaluate(coreSource, options: EvalOptions(type: .module))
         } catch let e as JSError {
             print("[setup] core.js 执行失败: \(e)")
             throw e
@@ -53,22 +35,27 @@ class QuickJSHost {
             throw NSError(domain: "PoeQuick", code: 2, userInfo: [NSLocalizedDescriptionKey: "cn-stats.compiled.js 未找到"])
         }
         do {
-            _ = try context.evaluate(dictSource)
+            _ = try newContext.evaluate(dictSource)
         } catch let e as JSError {
             print("[setup] 词典加载失败: \(e)")
             throw e
         }
+
+        runtime = newRuntime
+        context = newContext
     }
 
     func parseAndQuery(text: String, league: String) throws -> [String: Any] {
-        // 把剪贴板文本安全传入 JS
-        let escaped = text.replacingOccurrences(of: "\\", with: "\\\\")
-                         .replacingOccurrences(of: "`", with: "\\`")
-                         .replacingOccurrences(of: "${", with: "\\${")
+        // JSON 字符串字面量比手工转义安全，兼容引号、换行和 JS 模板字符。
+        let argumentsData = try JSONSerialization.data(withJSONObject: [text, league])
+        guard let arguments = String(data: argumentsData, encoding: .utf8) else {
+            throw NSError(domain: "PoeQuick", code: 4, userInfo: [NSLocalizedDescriptionKey: "参数编码失败"])
+        }
         let js = """
             (function() {
                 try {
-                    const result = globalThis.parseAndQueryPrice(`\(escaped)`, '\(league)');
+                    const [text, league] = \(arguments);
+                    const result = globalThis.parseAndQueryPrice(text, league);
                     return JSON.stringify(result);
                 } catch (e) {
                     return JSON.stringify({error: String(e && e.stack || e)});
