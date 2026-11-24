@@ -167,6 +167,14 @@ function parseNames(lines, item) {
   }
 }
 
+// 普通（白）装备带品质时，游戏在基底名前加「卓越」前缀（如「卓越 凋零法杖」）。
+// 市集 type 认的是纯基底名，带前缀的整串匹配不到任何挂单——剥离前缀，
+// 与引路石基底归一同一策略。只处理普通稀有度，避免误伤含该词的稀有随机名。
+function normalizeSuperiorBase(item) {
+  if (item.rarity !== '普通' || !item.baseName) return;
+  item.baseName = item.baseName.replace(/^卓越\s+/, '');
+}
+
 // 引路石基底名携带等阶：真实文本是「引路石（ 15 阶）」，没有独立等阶行。
 // 等阶提取进 properties.mapTier；baseName 归一为「引路石」——市集 type 匹配
 // 认的是基底名，带等阶后缀的整串会匹配失败（同「黄金戒指」虚构名教训）。
@@ -307,6 +315,7 @@ function parseItemText(raw) {
   // 3) 头部字段与名称
   parseHeader(lines, item);
   parseNames(lines, item);
+  normalizeSuperiorBase(item);
   normalizeWaystoneBase(item);
 
   // 4) 词缀

@@ -165,18 +165,22 @@ function applyNameAndType(query, parsedItem) {
  * 统一经 typeFiltersOf 拿到同一个对象再写字段，避免重复初始化。
  */
 function typeFiltersOf(query) {
-  query.filters.type_filters ??= { filters: {} };
+  // disabled:false 显式写出，与真实国服 URL 一致（equipment/misc 组同样写法）
+  query.filters.type_filters ??= { disabled: false, filters: {} };
   return query.filters.type_filters.filters;
 }
 
 function applyTypeFilters(query, parsedItem, opts) {
-  // 类别过滤
+  // 类别过滤（??= 初始化，不整组覆盖——与插槽/DPS 同一教训）
   const category = guessCategory(parsedItem);
   if (category) {
-    query.filters.type_filters = { filters: { category: { option: category } } };
+    typeFiltersOf(query).category = { option: category };
   }
 
-  // 稀有度过滤：稀有→rare（避免混入传奇/魔法），传奇→unique
+  // 稀有度过滤（国服官方 text「物品稀有度」）：普通→normal、魔法→magic、
+  // 稀有→rare、传奇→unique。非传奇装备与武器同样写入——白装查价要排除
+  // 魔法/稀有挂单，稀有要排除传奇/魔法。写法与位置经用户提供的 4 个真实
+  // 国服 URL 确认：type_filters.filters.rarity = {option: '...'}。
   const rarityOpt = RARITY_OPTION[parsedItem.rarity];
   if (rarityOpt) {
     typeFiltersOf(query).rarity = { option: rarityOpt };

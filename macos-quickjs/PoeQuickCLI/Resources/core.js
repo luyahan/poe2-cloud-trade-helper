@@ -521,6 +521,10 @@ var require_parse_item = __commonJS({
         item.baseName = nameLines[0];
       }
     }
+    function normalizeSuperiorBase(item) {
+      if (item.rarity !== "\u666E\u901A" || !item.baseName) return;
+      item.baseName = item.baseName.replace(/^卓越\s+/, "");
+    }
     var WAYSTONE_BASE = /^引路石\s*[（(]\s*(?:等阶\s*)?(\d+)\s*(?:阶)?\s*[)）]$/;
     function normalizeWaystoneBase(item) {
       if (item.category !== "\u5F15\u8DEF\u77F3" || !item.baseName) return;
@@ -649,6 +653,7 @@ var require_parse_item = __commonJS({
       };
       parseHeader(lines, item);
       parseNames(lines, item);
+      normalizeSuperiorBase(item);
       normalizeWaystoneBase(item);
       parseMods(lines, item);
       for (const mod of item.mods) {
@@ -1329,13 +1334,13 @@ var require_query = __commonJS({
     }
     function typeFiltersOf(query) {
       var _a;
-      (_a = query.filters).type_filters ?? (_a.type_filters = { filters: {} });
+      (_a = query.filters).type_filters ?? (_a.type_filters = { disabled: false, filters: {} });
       return query.filters.type_filters.filters;
     }
     function applyTypeFilters(query, parsedItem, opts) {
       const category = guessCategory(parsedItem);
       if (category) {
-        query.filters.type_filters = { filters: { category: { option: category } } };
+        typeFiltersOf(query).category = { option: category };
       }
       const rarityOpt = RARITY_OPTION[parsedItem.rarity];
       if (rarityOpt) {
