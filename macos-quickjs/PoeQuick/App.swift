@@ -1,7 +1,7 @@
 import AppKit
 
 // 纯 AppKit 菜单栏应用，零窗口零 SwiftUI Scene
-// 启动后只在菜单栏显示放大镜图标，Ctrl+Alt+C 后延迟 600ms 自动查价
+// 启动后只在菜单栏显示头像模板图标，Ctrl+Alt+C 后延迟 600ms 自动查价
 
 @main
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -25,7 +25,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 先创建菜单栏入口，即使脚本初始化失败也允许重载和退出。
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "PoE2 查价助手")
+            if let image = menuBarImage() {
+                button.image = image
+                button.toolTip = "PoE2 查价助手"
+            } else {
+                button.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "PoE2 查价助手")
+                log("[PoeQuick] 警告：未找到 iconTemplate.png，回退到放大镜图标")
+            }
         }
         rebuildMenu()
 
@@ -57,6 +63,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             showNotification(title: "无法监听 Ctrl+Alt+C", body: error.localizedDescription)
             log("[PoeQuick] \(error.localizedDescription)")
         }
+    }
+
+    private func menuBarImage() -> NSImage? {
+        // 菜单栏默认图标多为 16pt，这里放大到 18pt 更易辨认。
+        let pointSize: CGFloat = 18
+        let image = NSImage(size: NSSize(width: pointSize, height: pointSize))
+        var addedRepresentation = false
+        // .app 从 Contents/Resources 读；裸二进制走 SwiftPM 的 Bundle.module。
+        for name in ["iconTemplate", "iconTemplate@2x"] {
+            guard let url = resourceURL(name: name, extension: "png"),
+                  let data = try? Data(contentsOf: url),
+                  let representation = NSBitmapImageRep(data: data) else { continue }
+            // 18px / 36px 两张图都声明为 18pt，AppKit 按屏幕缩放自动选表示。
+            representation.size = NSSize(width: pointSize, height: pointSize)
+            image.addRepresentation(representation)
+            addedRepresentation = true
+        }
+        guard addedRepresentation else { return nil }
+        image.isTemplate = true
+        return image
+    }
+
+    private func resourceURL(name: String, extension ext: String) -> URL? {
+        if let url = Bundle.main.url(forResource: name, withExtension: ext) {
+            return url
+        }
+        return Bundle.module.url(forResource: name, withExtension: ext)
     }
 
     func rebuildMenu(lastResult: String? = nil) {

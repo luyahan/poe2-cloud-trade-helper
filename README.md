@@ -125,5 +125,7 @@ npm run dist             # 打包 .app（check → 测试 → prepare-data → �
 
 ## 各端详细文档
 
+- 物品类别测试覆盖与待办清单：`TESTING_TODO.md`（对照 poe2db 物品分类，标注已测/未测）
+
 - Electron 壳的坑位、打包、签名、国服 API 差异：`electron/README.md`
 - 原生壳的架构、体积/性能对比、QuickJS 限制：`macos-quickjs/README.md`

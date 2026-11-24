@@ -4,6 +4,7 @@
 <dict>
     <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
     <key>CFBundleExecutable</key><string>PoeQuick</string>
+    <key>CFBundleIconFile</key><string>icon.icns</string>
     <key>CFBundleIdentifier</key><string>com.poe2pricehelper.app</string>
     <key>CFBundleName</key><string>PoE2 查价助手</string>
     <key>CFBundleDisplayName</key><string>PoE2 查价助手</string>

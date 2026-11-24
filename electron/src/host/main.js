@@ -199,8 +199,7 @@ function notify(body, url) {
 
 // ---- 托盘图标 ----
 function makeTrayIcon() {
-  // 16x16 模板图（纯黑+alpha），macOS 自动适配明暗；这里用内嵌 PNG 占位
-  // 正式图标应放 assets/iconTemplate.png + @2x
+  // 18x18/36x36 头像剪影模板图（纯黑+alpha），macOS 自动适配明暗
   const iconPath = join(ROOT, 'assets', 'iconTemplate.png');
   if (existsSync(iconPath)) {
     const img = nativeImage.createFromPath(iconPath);

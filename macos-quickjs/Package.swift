@@ -18,6 +18,8 @@ let package = Package(
             resources: [
                 .copy("Resources/core.js"),
                 .copy("Resources/cn-stats.compiled.js"),
+                .copy("Resources/iconTemplate.png"),
+                .copy("Resources/iconTemplate@2x.png"),
             ]
         ),
         // 命令行验证入口（独立 target，复用 QuickJSHost.swift）

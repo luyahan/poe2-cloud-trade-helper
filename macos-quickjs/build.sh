@@ -63,6 +63,9 @@ cp Info.plist "$APP/Contents/Info.plist"
 cp "$BIN" "$APP/Contents/MacOS/PoeQuick"
 cp PoeQuick/Resources/core.js "$APP/Contents/Resources/core.js"
 cp PoeQuick/Resources/cn-stats.compiled.js "$APP/Contents/Resources/cn-stats.compiled.js"
+cp icon.icns "$APP/Contents/Resources/icon.icns"
+cp PoeQuick/Resources/iconTemplate.png "$APP/Contents/Resources/iconTemplate.png"
+cp PoeQuick/Resources/iconTemplate@2x.png "$APP/Contents/Resources/iconTemplate@2x.png"
 # ad-hoc 签名：本地开发足够，无开发者证书也能通过 Gatekeeper 的本机校验。
 codesign --force --deep --sign - "$APP" 2>/dev/null || \
   echo "[build] 警告：codesign 失败，.app 仍可直接运行（仅本机）" >&2
