@@ -1,0 +1,15 @@
+{
+  "name": "poe2-cloud-trade-helper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PoE2 云游戏查价工具：core（零依赖业务逻辑）+ Electron 托盘壳 + macOS QuickJS 原生壳",
+  "scripts": {
+    "prepare-data": "node scripts/prepare-data.js",
+    "test": "node --test test/*.test.js",
+    "test:all": "node --test test/*.test.js && npm --prefix electron test",
+    "test:host": "npm --prefix electron test",
+    "check": "npm --prefix electron run check",
+    "build:quickjs": "cd macos-quickjs && ./build.sh"
+  },
+  "license": "MIT"
+}

@@ -1,10 +1,10 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseItemText } = require('../src/lib/parse-item.js');
-const { calcMapMods } = require('../src/lib/map-mods.js');
-const { buildQuery } = require('../src/query.js');
-const { compileDictionary, matchItem } = require('../src/lib/match-stats.js');
-const compiled = compileDictionary(JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname, '../../cn-stats.json'), 'utf8')));
+const { parseItemText } = require('@poe2/core/parse-item');
+const { calcMapMods } = require('@poe2/core/map-mods');
+const { buildQuery } = require('@poe2/core/query');
+const { compileDictionary, matchItem } = require('@poe2/core/match-stats');
+const compiled = compileDictionary(JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname, '../data/cn-stats.json'), 'utf8')));
 
 const WAYSTONE = `物品类别: 引路石
 稀 有 度: 稀有

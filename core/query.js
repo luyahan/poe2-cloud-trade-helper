@@ -13,7 +13,7 @@
 
 // 国服市集类别 option 映射
 // 权威来源：国服 /api/trade2/data/filters 的 type_filters.category 枚举
-// （已存档 trade-tray/cn-filters.json，中文 text 即游戏「物品类别」字段）。
+// （已存档 data/cn-filters.json，中文 text 即游戏「物品类别」字段）。
 // 注意国服命名与 EE2/国际服有差异：国服 warstaff=节杖、sceptre=短杖、flail=连枷。
 // 优先用「物品类别」字段精确判定，基底名关键词兜底；认不出的不加过滤（宁缺勿错）。
 const CATEGORY_BY_ITEM_CLASS = {
@@ -72,9 +72,9 @@ function rollValue(stat, match) {
  * @param matched     matchItem 产物 [{mod, match}]
  * @param opts        { tierMax, includeUntiered, league, host }
  */
-const { addDpsFilters } = require('./lib/weapon-dps.js');
-const { addDefenceFilters } = require('./lib/defences.js');
-const { addMapFilters } = require('./lib/map-mods.js');
+const { addDpsFilters } = require('./weapon-dps.js');
+const { addDefenceFilters } = require('./defences.js');
+const { addMapFilters } = require('./map-mods.js');
 
 function buildQuery(parsedItem, matched, opts = {}) {
   const {
@@ -163,15 +163,15 @@ function buildQuery(parsedItem, matched, opts = {}) {
 }
 
 /**
- * 编码成市集 URL：JSON → gzip → base64url
- * 用 Node zlib（主进程比 CompressionStream 更稳），算法与油猴 codec.js 同源
+ * 由「已压缩编码的载荷」拼出市集 URL。
+ *
+ * 编码（JSON → gzip → base64url）是平台相关能力：Electron 用 node:zlib，
+ * PoeQuick 由 Swift 层调 /usr/bin/gzip。所以这里只做纯字符串拼接，
+ * 让 core 保持零 Node 依赖（同一份代码可在 QuickJS 里跑）。
+ * 对应实现见 host/encode.js。
  */
-const zlib = require('node:zlib');
-function encodeTradeUrl(queryObj, league, host = 'poe.game.qq.com') {
-  const json = JSON.stringify(queryObj);
-  const gz = zlib.gzipSync(Buffer.from(json, 'utf8'));
-  const b64 = gz.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  return Promise.resolve(`https://${host}/trade2/search/poe2/${encodeURIComponent(league)}/${b64}`);
+function buildTradeUrl(payload, league, host = 'poe.game.qq.com') {
+  return `https://${host}/trade2/search/poe2/${encodeURIComponent(league)}/${payload}`;
 }
 
-module.exports = { buildQuery, encodeTradeUrl };
+module.exports = { buildQuery, buildTradeUrl };

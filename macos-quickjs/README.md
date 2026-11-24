@@ -15,7 +15,7 @@
                    │
         ┌──────────▼──────────┐
         │   QuickJS 引擎      │
-        │  ├─ core.js         │  ← esbuild 打包（复用 Electron 端逻辑）
+        │  ├─ core.js         │  ← esbuild 打包（仓库根 core/，@poe2/core）
         │  │  ├─ parse-item   │
         │  │  ├─ match-stats  │
         │  │  └─ query        │
@@ -31,18 +31,21 @@
 ## 构建
 
 ```bash
-# 1. 打包 core.js（复用 Electron 端 JS）
+# 前置：词典数据由仓库根统一生成（首次或换了赛季时跑一次）
+(cd .. && npm run prepare-data)
+
+# build.sh 内部完成：esbuild 打 core.js → 同步词典 → swift build
 ./build.sh
 
-# 2. 编译 Swift
-swift build
-
-# 3. 运行 CLI 验证
+# 运行 CLI 验证（解析 → 匹配 → 构造查询 → 出 URL）
 ./.build/debug/PoeQuickCLI
 
-# 4. 运行菜单栏应用
+# 运行菜单栏应用
 ./.build/debug/PoeQuick
 ```
+
+> `build.sh` 里 `swift build` 带 `--disable-sandbox`：SwiftPM 在受限环境
+> （CI、sandbox 内）无法 apply 自身沙箱，会报 `Invalid manifest`。
 
 ## 触发流程与权限
 
@@ -94,8 +97,17 @@ Swift 层直接调 `/usr/bin/gzip`，零依赖。
 
 ### 为什么 core.js 用 esbuild 打包？
 
-Electron 端的 `parse-item.js` / `match-stats.js` / `query.js` 是 CommonJS，
-QuickJS 只支持 ES Module。esbuild 打包成单文件 ESM，同时 tree-shake 掉 `node:zlib` 等 Node 特有模块。
+业务逻辑收在**仓库根 `core/`**（独立包 `@poe2/core`：`parse-item` / `match-stats` / `query` /
+`weapon-dps` / `defences` / `map-mods` / `item-text`），该目录刻意保持零平台依赖，
+是 CommonJS 但可整份移植。QuickJS 只支持 ES Module，esbuild 打包成单文件 ESM。
+
+本目录与 `electron/` 之间**不存在代码或数据依赖**：
+- 代码：`core-entry.js` 直接 import 仓库根 `../../../core/*.js`
+- 数据：词典从仓库根 `../data/` 取，由根级 `npm run prepare-data` 统一生成
+
+gzip 是唯一原本卡住移植的地方：`query.js` 里已把 `encodeTradeUrl` 换成纯字符串拼接的
+`buildTradeUrl`，压缩下沉到各宿主（Electron 用 `host/encode.js` 的 node:zlib，这里用 Swift 调
+`/usr/bin/gzip`）。所以连 `zlib-stub` 都已不再需要——它是历史残留，留着只为兼容旧构建脚本。
 
 ## 后续
 

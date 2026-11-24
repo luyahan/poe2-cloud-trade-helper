@@ -1,24 +1,37 @@
 /**
- * PoE2 云游戏查价托盘助手 — 主进程
+ * PoE2 云游戏查价托盘助手 — 主进程（宿主壳层）
  *
  * 流程：Ctrl+Alt+C（uiohook 旁听热键）→ 延迟读剪贴板 → 解析 → 匹配国服词典
  *       → 构造查询 → 编码 URL → 打开市集
  * 仅热键模式：macOS 需辅助功能权限，无权限/启动失败则弹窗提醒并退出（不降级）。
  * 托盘常驻菜单栏（macOS）/ 通知区（Windows）。
+ *
+ * 分层约定：
+ *   core/  纯业务逻辑（解析/匹配/查询），零 Electron 依赖，可移植到 QuickJS
+ *   host/  平台能力（热键、编码、设置持久化、主进程编排）
+ *   ui/    视图层（设置窗口 HTML + preload IPC 桥）
  */
 
 const { app, Tray, Menu, clipboard, shell, nativeImage, BrowserWindow, Notification, net, ipcMain, systemPreferences, dialog } = require('electron');
 const { join } = require('node:path');
 const { readFileSync, writeFileSync, existsSync } = require('node:fs');
 
-const { parseItemText } = require('./lib/parse-item.js');
-const { compileDictionary, matchItem } = require('./lib/match-stats.js');
-const { buildQuery, encodeTradeUrl } = require('./query.js');
-const { looksLikeItemText } = require('./clipboard.js');
+const {
+  parseItemText,
+  compileDictionary,
+  matchItem,
+  buildQuery,
+  looksLikeItemText,
+  serializeCompiled,
+  deserializeCompiled,
+} = require('@poe2/core');
+const { encodeTradeUrl } = require('./encode.js');
 const { HotkeyWatcher } = require('./hotkey.js');
 const { Settings } = require('./settings.js');
 
-const ROOT = join(__dirname, '..');
+const ROOT = join(__dirname, '..', '..');
+const REPO = join(ROOT, '..');
+const UI_DIR = join(__dirname, '..', 'ui');
 
 // 模块级持有，防 GC 导致托盘图标消失
 let tray = null;
@@ -30,8 +43,11 @@ let lastResult = null;
 
 const DICT_CACHE = () => join(app.getPath('userData'), 'cn-stats.json');
 const DICT_URL = () => `https://${settings.get('host')}/api/trade2/data/stats`;
-// 打包时 prepare-data.js 生成、随 app 分发的数据（Resources/build-data/）
-const BUNDLED_DATA = () => join(process.resourcesPath || join(ROOT, 'build-data'), 'build-data');
+// 打包态：prepare-data 产物被 builder 拷进 Resources/build-data/
+// 开发态：直接用仓库根 data/（与 PoeQuick 共用同一份）
+const BUNDLED_DATA = () => process.resourcesPath
+  ? join(process.resourcesPath, 'build-data')
+  : join(REPO, 'data');
 
 // 读打包元信息（打包时间 + 打包时的当前联赛）
 function readBuildMeta() {
@@ -44,7 +60,6 @@ function readBuildMeta() {
 
 // ---- 词典加载（userData 缓存 24h TTL → 打包内置词典 → 在线拉取）----
 async function loadDictionary(force = false) {
-  const { deserializeCompiled } = require('./lib/match-stats.js');
   const cacheFile = DICT_CACHE();
   const compiledCacheFile = cacheFile.replace(/\.json$/, '.compiled.json');
 
@@ -65,7 +80,6 @@ async function loadDictionary(force = false) {
       if (Date.now() - ts < 86400000) {
         compiledDict = compileDictionary(data);
         try {
-          const { serializeCompiled } = require('./lib/match-stats.js');
           const serialized = serializeCompiled(compiledDict);
           writeFileSync(compiledCacheFile, JSON.stringify({ ts: Date.now(), data: serialized }), 'utf8');
         } catch { /* 写 compiled 失败不影响主流程 */ }
@@ -110,7 +124,6 @@ async function loadDictionary(force = false) {
   compiledDict = compileDictionary(data);
   // 把编译结果写入 compiled.json，下次启动直接 new Map 重建
   try {
-    const { serializeCompiled } = require('./lib/match-stats.js');
     const serialized = serializeCompiled(compiledDict);
     writeFileSync(compiledCacheFile, JSON.stringify({ ts: Date.now(), data: serialized }), 'utf8');
   } catch { /* 写 compiled 失败不影响主流程 */ }
@@ -283,9 +296,9 @@ function openSettings() {
   if (settingsWin) { settingsWin.show(); settingsWin.focus(); return; }
   settingsWin = new BrowserWindow({
     width: 420, height: 480, title: '查价助手设置',
-    webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true },
+    webPreferences: { preload: join(UI_DIR, 'preload.cjs'), contextIsolation: true },
   });
-  settingsWin.loadFile(join(__dirname, 'settings.html'));
+  settingsWin.loadFile(join(UI_DIR, 'settings.html'));
   settingsWin.on('closed', () => { settingsWin = null; });
 }
 

@@ -3,13 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "description": "PoE2 云游戏查价托盘助手：热键旁听 Ctrl+Alt+C → 解析装备 → 匹配国服词典 → 打开市集",
-  "main": "src/main.js",
+  "main": "src/host/main.js",
   "scripts": {
     "start": "electron .",
     "test": "node --test test/*.test.js",
-    "check": "node --check src/main.js && node --check src/hotkey.js && node --check src/clipboard.js && node --check src/query.js && node --check src/settings.js && node --check src/lib/parse-item.js && node --check src/lib/weapon-dps.js && node --check src/lib/defences.js && node --check src/lib/map-mods.js && node --check src/lib/match-stats.js && node --check scripts/prepare-data.js",
-    "prepare-data": "node scripts/prepare-data.js",
-    "predist": "npm run check && npm test && npm run prepare-data",
+    "check": "node --check src/host/main.js && node --check src/host/hotkey.js && node --check src/host/encode.js && node --check src/host/settings.js && node --check ../core/index.js && node --check ../core/parse-item.js && node --check ../core/weapon-dps.js && node --check ../core/defences.js && node --check ../core/map-mods.js && node --check ../core/query.js && node --check ../core/item-text.js && node --check ../core/match-stats.js && node --check ../scripts/prepare-data.js",
+    "prepare-data": "node ../scripts/prepare-data.js",
+    "predist": "npm run check && npm --prefix .. test && npm test && npm run prepare-data",
     "dist": "electron-builder --mac dir --arm64 && node scripts/sign-app.js",
     "pack": "electron-builder --mac dir"
   },
@@ -20,7 +20,8 @@
     "electron-builder": "^25.1.8"
   },
   "dependencies": {
-    "uiohook-napi": "^1.5.5"
+    "uiohook-napi": "^1.5.5",
+    "@poe2/core": "file:../core"
   },
   "build": {
     "appId": "com.local.poe2-trade-tray",
@@ -37,15 +38,25 @@
     ],
     "extraResources": [
       {
-        "from": "build-data",
+        "from": "../data",
         "to": "build-data",
-        "filter": ["cn-stats.json", "cn-stats.compiled.json", "build-meta.json"]
+        "filter": [
+          "cn-stats.json",
+          "cn-stats.compiled.json",
+          "build-meta.json"
+        ]
       }
     ],
     "mac": {
       "category": "public.app-category.utilities",
       "target": [
-        { "target": "dmg", "arch": ["arm64", "x64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
       "icon": "assets/icon.icns",
       "identity": null,
@@ -57,8 +68,16 @@
     "dmg": {
       "title": "PoE2 查价助手 ${version}",
       "contents": [
-        { "x": 130, "y": 220 },
-        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     }
   }

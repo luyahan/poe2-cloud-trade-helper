@@ -14,7 +14,7 @@ let package = Package(
                 .product(name: "QuickJS", package: "QuickJS-Swift"),
             ],
             path: "PoeQuick",
-            exclude: ["Resources/core-entry.js", "Resources/zlib-stub.js"],
+            exclude: ["Resources/core-entry.js"],
             resources: [
                 .copy("Resources/core.js"),
                 .copy("Resources/cn-stats.compiled.js"),

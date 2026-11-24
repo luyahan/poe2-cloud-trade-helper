@@ -1,7 +1,11 @@
-// QuickJS 入口：包装 Electron 端的解析/匹配/查询逻辑为全局函数
-import { parseItemText } from '../../../electron/src/lib/parse-item.js';
-import { compileDictionary, matchItem } from '../../../electron/src/lib/match-stats.js';
-import { buildQuery } from '../../../electron/src/query.js';
+// QuickJS 入口：把 @poe2/core 的业务逻辑包装成全局函数
+//
+// core 是仓库根目录的独立包，与 Electron 宿主无任何依赖关系。
+// 这里用相对路径直连（Swift 侧没有包管理器参与，esbuild 只需能读到源文件），
+// 不引入 node_modules 解析，避免构建环境差异。
+import { parseItemText } from '../../../core/parse-item.js';
+import { matchItem } from '../../../core/match-stats.js';
+import { buildQuery } from '../../../core/query.js';
 
 // 词典由宿主执行 cn-stats.compiled.js 后注入到 globalThis.compiledDict
 // gzip 由宿主 Swift 层处理（QuickJS 无 node:zlib）

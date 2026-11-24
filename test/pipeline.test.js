@@ -10,14 +10,14 @@ const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const zlib = require('node:zlib');
 
-const { parseItemText } = require('../src/lib/parse-item.js');
-const { compileDictionary, matchItem, normalizeTemplate } = require('../src/lib/match-stats.js');
-const { buildQuery, encodeTradeUrl } = require('../src/query.js');
-const { looksLikeItemText } = require('../src/clipboard.js');
+const { parseItemText } = require('@poe2/core/parse-item');
+const { compileDictionary, matchItem, normalizeTemplate } = require('@poe2/core/match-stats');
+const { buildQuery } = require('@poe2/core/query');
+const { looksLikeItemText } = require('@poe2/core/item-text');
 
 const here = __dirname;
-const sample = readFileSync(join(here, '../../sample-item.txt'), 'utf8');
-const dict = JSON.parse(readFileSync(join(here, '../../cn-stats.json'), 'utf8'));
+const sample = readFileSync(join(here, '../data/sample-item.txt'), 'utf8');
+const dict = JSON.parse(readFileSync(join(here, '../data/cn-stats.json'), 'utf8'));
 const compiled = compileDictionary(dict);
 
 test('解析：头部字段正确', () => {
@@ -95,18 +95,6 @@ test('查询：类别/稀有度/ilvl 过滤', () => {
   assert.ok(!query.filters.misc_filters, 'ilvl 不应放 misc_filters');
 });
 
-test('编码：URL 回环一致', async () => {
-  const p = parseItemText(sample);
-  const matched = matchItem(p, compiled);
-  const { query, league } = buildQuery(p, matched, {});
-  const url = await encodeTradeUrl(query, league);
-  assert.match(url, /^https:\/\/poe\.game\.qq\.com\/trade2\/search\/poe2\//);
-  const b64 = url.split('/').pop();
-  const gz = Buffer.from(b64.replace(/-/g,'+').replace(/_/g,'/'), 'base64');
-  const back = JSON.parse(zlib.gunzipSync(gz).toString('utf8'));
-  assert.deepEqual(back, query);
-});
-
 test('查询结构：扁平载荷（防「无法使用搜索」回归）', () => {
   // 真实国服 URL 解码后是 {status, stats, filters} 顶层扁平结构，
   // 不能包 {query:{...}, sort:{...}}，否则市集报「无法使用搜索」。
@@ -130,7 +118,7 @@ test('剪贴板识别：装备文本 vs 噪声', () => {
 });
 
 // ---- 战矛样本回归（+号归一化 / 多行混合词缀 / 基底属性 / 技能行）----
-const spear = readFileSync(join(here, '../../sample-spear.txt'), 'utf8');
+const spear = readFileSync(join(here, '../data/sample-spear.txt'), 'utf8');
 
 test('归一化：剥数值前导+号', () => {
   assert.equal(normalizeTemplate('+51 (41-60) 命中值'), '#命中值');
@@ -199,38 +187,7 @@ test('战矛查询：类别正确且非空', () => {
   assert.ok(enabled.length >= 3);
 });
 
-const hateforge = `物品类别: 手套
-稀有度: 传奇
-仇恨熔炉
-铸锻护手
---------
-护甲: 394 (augmented)
---------
-需求： 等级 60, 39 (augmented) 力量
---------
-插槽: S
---------
-物品等级: 82
---------
-攻击每击中一名敌人获得3点生命 (rune)
-攻击每击中一名敌人获得1点魔力 (rune)
---------
-{ 传奇属性 — 护甲 }
-护甲提高 343 (300-400)%
-{ 传奇属性 }
-击中时获得 6 (3-6) 点怒火
-{ 传奇属性 }
-处于怒火上限状态时，获得一个随机能量球，每 5.92 (3-6) 秒只能获得一次
-{ 瓦尔传奇词缀 }
-过去 20 秒内每使用一次需要荣耀的技能时，怒火上限 +8 (8-10)
-{ 传奇属性 }
-+9 (-10-+10) 怒火上限
---------
-首个卡鲁人诞生于瓦尔帝国边陲，
-来自一场从腐化中开发血瘟的实验。
---------
-被腐化`;
-
+const hateforge = readFileSync(join(here, '../data/sample-hateforge.txt'), 'utf8');
 test('仇恨熔炉：腐化传奇完整解析，正负区间不拆分', () => {
   const p = parseItemText(hateforge);
   assert.equal(p.name, '仇恨熔炉');
@@ -272,67 +229,4 @@ test('仇恨熔炉：传奇名与基底分列，符文和 ilvl 默认不限制',
   assert.deepEqual(cooldown.value, { max: 6 });
   assert.equal(filters.find(f => f.id === 'explicit.stat_1181501418').value.min, -10);
   assert.equal(filters.filter(f => f.id.startsWith('rune.')).every(f => f.disabled), true);
-});
-
-// ---- 热键组合键判定逻辑（mock uiohook，不依赖真实权限）----
-test('热键：Ctrl+Alt+C 命中判定与防抖', () => {
-  const { HotkeyWatcher } = require('../src/hotkey.js');
-  let captured = null;
-  const fakeClipboard = { readText: () => '物品类别: 战矛\n稀有度: 稀有\n--------' };
-  const w = new HotkeyWatcher(fakeClipboard, (t) => { captured = t; }, {
-    readDelayMs: 10, looksLikeItemText: (t) => /^物品类别:/m.test(t),
-  });
-  // 直接驱动内部 handlers，模拟 uiohook 事件键码（C=46 Ctrl=29 Alt=56）
-  const UiohookKey = { C:46, Ctrl:29, CtrlRight:3629, Alt:56, AltRight:3640, Shift:42, ShiftRight:3654 };
-  // 注入模块缓存的 UiohookKey：通过 mock require 缓存
-  const Module = require('node:module');
-  const origLoad = Module._load;
-  Module._load = function(req, ...rest) {
-    if (req === 'uiohook-napi') return { uIOhook: { on(){}, removeListener(){}, start(){}, stop(){} }, UiohookKey };
-    return origLoad.call(this, req, ...rest);
-  };
-  try {
-    w.start();
-    w._onKeyDown({ keycode: 29 }); // Ctrl down
-    w._onKeyDown({ keycode: 56 }); // Alt down
-    w._onKeyDown({ keycode: 46 }); // C down → 命中
-    assert.equal(w.mods.ctrl, true);
-    assert.equal(w.mods.alt, true);
-    // 防抖：立即再按 C 不应重复调度
-    const t0 = w.lastTrigger;
-    w._onKeyDown({ keycode: 46 });
-    assert.equal(w.lastTrigger, t0, '500ms 内重复触发应被防抖忽略');
-    w._onKeyUp({ keycode: 29 });
-    assert.equal(w.mods.ctrl, false);
-    // 等延迟读剪贴板
-    return new Promise((resolve) => setTimeout(() => {
-      assert.ok(captured && captured.includes('物品类别'), '应读到装备文本并回调');
-      w.stop();
-      resolve();
-    }, 40));
-  } finally {
-    Module._load = origLoad;
-  }
-});
-
-test('热键：缺修饰键不触发', () => {
-  const { HotkeyWatcher } = require('../src/hotkey.js');
-  let captured = null;
-  const w = new HotkeyWatcher({ readText: () => '物品类别: x' }, (t) => { captured = t; }, { readDelayMs: 10 });
-  const UiohookKey = { C:46, Ctrl:29, CtrlRight:3629, Alt:56, AltRight:3640, Shift:42, ShiftRight:3654 };
-  const Module = require('node:module');
-  const origLoad = Module._load;
-  Module._load = function(req, ...rest) {
-    if (req === 'uiohook-napi') return { uIOhook: { on(){}, removeListener(){}, start(){}, stop(){} }, UiohookKey };
-    return origLoad.call(this, req, ...rest);
-  };
-  try {
-    w.start();
-    w._onKeyDown({ keycode: 29 }); // 只按 Ctrl
-    w._onKeyDown({ keycode: 46 }); // C，缺 Alt
-    assert.equal(w.lastTrigger, 0, '缺 Alt 不应触发');
-    w.stop();
-  } finally {
-    Module._load = origLoad;
-  }
 });

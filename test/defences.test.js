@@ -1,10 +1,10 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseItemText } = require('../src/lib/parse-item.js');
-const { calcDefences } = require('../src/lib/defences.js');
-const { buildQuery } = require('../src/query.js');
-const { compileDictionary, matchItem } = require('../src/lib/match-stats.js');
-const compiled = compileDictionary(JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname, '../../cn-stats.json'), 'utf8')));
+const { parseItemText } = require('@poe2/core/parse-item');
+const { calcDefences } = require('@poe2/core/defences');
+const { buildQuery } = require('@poe2/core/query');
+const { compileDictionary, matchItem } = require('@poe2/core/match-stats');
+const compiled = compileDictionary(JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname, '../data/cn-stats.json'), 'utf8')));
 
 const SAMPLE = `物品类别: 胸甲
 稀有度: 稀有
@@ -60,8 +60,8 @@ test('防御：国服 ar/ev/es/ward/block/spirit 与 DPS 共用装备筛选组',
 });
 
 test('防御：仇恨熔炉区域护甲匹配与腐化品质保留', () => {
-  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'pipeline.test.js'), 'utf8');
-  const text = source.match(/const hateforge = `([\s\S]*?)`;/)?.[1];
+  const text = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '../data/sample-hateforge.txt'), 'utf8');
   const item = parseItemText(text);
   const { query, defences } = buildQuery(item, matchItem(item, compiled), {});
   // 腐化装备不补足 q20，保留原品质 0：B = 394 / 4.43；value = B * 4.43 * 1 = 394。

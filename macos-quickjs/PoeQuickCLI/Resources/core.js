@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../electron/src/lib/weapon-dps.js
+// ../core/weapon-dps.js
 var require_weapon_dps = __commonJS({
-  "../electron/src/lib/weapon-dps.js"(exports, module) {
+  "../core/weapon-dps.js"(exports, module) {
     var ELEMENT_NAMES = {
       fire: "\u706B\u7130",
       cold: "\u51B0\u971C",
@@ -216,9 +216,9 @@ var require_weapon_dps = __commonJS({
   }
 });
 
-// ../electron/src/lib/defences.js
+// ../core/defences.js
 var require_defences = __commonJS({
-  "../electron/src/lib/defences.js"(exports, module) {
+  "../core/defences.js"(exports, module) {
     var { searchMin } = require_weapon_dps();
     var DEFENCES = {
       armour: {
@@ -377,9 +377,9 @@ var require_defences = __commonJS({
   }
 });
 
-// ../electron/src/lib/parse-item.js
+// ../core/parse-item.js
 var require_parse_item = __commonJS({
-  "../electron/src/lib/parse-item.js"(exports, module) {
+  "../core/parse-item.js"(exports, module) {
     var MOD_LINE = /^\{\s*(?<special>亵渎的|打造的|已破裂|已工艺)?\s*(?<gen>前缀属性|后缀属性|前缀词缀|后缀词缀|固定词缀|基底属性|传奇属性|瓦尔传奇词缀)\s*(?:"(?<name>[^"]*)"|“(?<nameCN>[^”]*)”)?\s*(?:\(等阶：(?<tier>\d+)\))?\s*(?:\(阶级：(?<rank>\d+)\))?\s*(?:—\s*(?<tags>[^}]*))?\}$/;
     var GRANT_SKILL_LINE = /^获得技能:\s*(.+)$/;
     var NUM_RANGE = /(?<sign>[+-]?)(?<value>\d+(?:\.\d+)?)\s*(?:\((?<min>[+-]?\d+(?:\.\d+)?)\s*[-–—]\s*(?<max>[+-]?\d+(?:\.\d+)?)\))?/g;
@@ -597,9 +597,9 @@ var require_parse_item = __commonJS({
   }
 });
 
-// ../electron/src/lib/match-stats.js
+// ../core/match-stats.js
 var require_match_stats = __commonJS({
-  "../electron/src/lib/match-stats.js"(exports, module) {
+  "../core/match-stats.js"(exports, module) {
     var TYPE_GROUP_PRIORITY = {
       Desecrated: ["explicit", "desecrated"],
       Crafted: ["explicit", "crafted"],
@@ -623,7 +623,7 @@ var require_match_stats = __commonJS({
     function normalizeDictText(text) {
       return text.replace(/\s+/g, "").replace(/\+#/g, "#").trim();
     }
-    function compileDictionary2(dict) {
+    function compileDictionary(dict) {
       const byGroup = {};
       for (const group of dict.result) {
         const map = /* @__PURE__ */ new Map();
@@ -714,13 +714,13 @@ var require_match_stats = __commonJS({
       }
       return out;
     }
-    module.exports = { normalizeTemplate, compileDictionary: compileDictionary2, serializeCompiled, deserializeCompiled, matchMod, matchItem: matchItem2 };
+    module.exports = { normalizeTemplate, compileDictionary, serializeCompiled, deserializeCompiled, matchMod, matchItem: matchItem2 };
   }
 });
 
-// ../electron/src/lib/map-mods.js
+// ../core/map-mods.js
 var require_map_mods = __commonJS({
-  "../electron/src/lib/map-mods.js"(exports, module) {
+  "../core/map-mods.js"(exports, module) {
     var MAP_FIELDS = [
       { property: "mapTier", filter: "map_tier", label: "\u5F15\u8DEF\u77F3\u7B49\u9636", integer: true },
       { property: "mapPackSize", filter: "map_packsize", label: "\u602A\u7269\u7FA4\u89C4\u6A21", integer: false },
@@ -815,20 +815,9 @@ var require_map_mods = __commonJS({
   }
 });
 
-// PoeQuick/Resources/zlib-stub.js
-var require_zlib_stub = __commonJS({
-  "PoeQuick/Resources/zlib-stub.js"(exports, module) {
-    module.exports = {
-      gzipSync() {
-        throw new Error("node:zlib \u5728 QuickJS \u4E2D\u4E0D\u53EF\u7528\uFF0C\u8BF7\u7531\u5BBF\u4E3B\u5C42\u5904\u7406 gzip");
-      }
-    };
-  }
-});
-
-// ../electron/src/query.js
+// ../core/query.js
 var require_query = __commonJS({
-  "../electron/src/query.js"(exports, module) {
+  "../core/query.js"(exports, module) {
     var CATEGORY_BY_ITEM_CLASS = {
       "\u722A": "weapon.claw",
       "\u5315\u9996": "weapon.dagger",
@@ -966,14 +955,10 @@ var require_query = __commonJS({
       const mapMods = addMapFilters(query, parsedItem, opts);
       return { query, league, weaponDps, defences, mapMods };
     }
-    var zlib = require_zlib_stub();
-    function encodeTradeUrl(queryObj, league, host = "poe.game.qq.com") {
-      const json = JSON.stringify(queryObj);
-      const gz = zlib.gzipSync(Buffer.from(json, "utf8"));
-      const b64 = gz.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-      return Promise.resolve(`https://${host}/trade2/search/poe2/${encodeURIComponent(league)}/${b64}`);
+    function buildTradeUrl(payload, league, host = "poe.game.qq.com") {
+      return `https://${host}/trade2/search/poe2/${encodeURIComponent(league)}/${payload}`;
     }
-    module.exports = { buildQuery: buildQuery2, encodeTradeUrl };
+    module.exports = { buildQuery: buildQuery2, buildTradeUrl };
   }
 });
 

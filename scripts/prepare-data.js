@@ -1,25 +1,24 @@
 #!/usr/bin/env node
 /**
- * 打包前数据准备（npm run dist 自动执行）
+ * 打包前数据准备（仓库根 npm run prepare-data）
  *
  * 1. 从国服 API 重新拉取词缀词典 /api/trade2/data/stats
  * 2. 从 /api/trade2/data/leagues 获取当前联赛（取第一个非专家 poe2 联赛）
- * 3. 写入 build-data/：
+ * 3. 写入仓库根 data/（Electron 与 PoeQuick 共用同一份数据产物）：
  *    - cn-stats.json            原始词典（在线兜底 / 调试）
  *    - cn-stats.compiled.json   预建索引（数组元组 JSON，跨引擎通用）
- *    - cn-stats.qjs.bin         预建索引（QuickJS JS_WriteObject 二进制）
- *    - build-meta.json          打包时间 + 当前联赛，运行时读取作为默认联赛
+ *    - cn-stats.compiled.js     同上内容的 JS 字面量（QuickJS 直接 evaluate）
+ *    - build-meta.json          拉取时间 + 当前联赛，运行时读取作为默认联赛
  *
- * 任一 API 失败则打包中止（宁可打包失败，不出带旧数据的包）。
+ * 任一 API 失败则中止（宁可失败，不出带旧数据的产物）。
  */
 
 const { writeFileSync, mkdirSync } = require('node:fs');
 const { join } = require('node:path');
-const { execFileSync } = require('node:child_process');
-const { compileDictionary, serializeCompiled } = require('../src/lib/match-stats.js');
+const { compileDictionary, serializeCompiled } = require('@poe2/core');
 
 const HOST = process.env.TRADE_HOST || 'poe.game.qq.com';
-const OUT = join(__dirname, '..', 'build-data');
+const OUT = join(__dirname, '..', 'data');
 
 async function fetchJson(path) {
   const url = `https://${HOST}${path}`;
@@ -81,7 +80,7 @@ async function fetchJson(path) {
   writeFileSync(join(OUT, 'build-meta.json'), JSON.stringify(meta, null, 2));
   console.log(`[prepare] 当前联赛：${current.id}`);
   console.log(`[prepare] 可选联赛：${meta.leagues.join(' / ')}`);
-  console.log('[prepare] 完成 → build-data/');
+  console.log('[prepare] 完成 → data/');
 })().catch((err) => {
   console.error(`[prepare] 失败：${err.message}`);
   process.exit(1);

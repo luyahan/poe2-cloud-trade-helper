@@ -1,8 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseItemText } = require('../src/lib/parse-item.js');
-const { calcWeaponDps, searchMin } = require('../src/lib/weapon-dps.js');
-const { buildQuery } = require('../src/query.js');
+const { parseItemText } = require('@poe2/core/parse-item');
+const { calcWeaponDps, searchMin } = require('@poe2/core/weapon-dps');
+const { buildQuery } = require('@poe2/core/query');
 
 const SAMPLE = `物品类别: 单手锤
 稀有度: 稀有

@@ -55,7 +55,7 @@ Windows 无此门槛。
   顶层，**没有** `{query:{...}, sort:{...}}` 包裹（以真实国服 URL 解码为准）。包错结构
   市集会报「无法使用搜索」。
 - **⚠️ 国服 filters 分组与国际服不同**：以 `/api/trade2/data/filters`（已存档
-  `../cn-filters.json`）为权威——`ilvl`/`quality` 在 **type_filters**（EE2/国际服放
+  `data/cn-filters.json`）为权威——`ilvl`/`quality` 在 **type_filters**（EE2/国际服放
   misc_filters）；category 中文对照也不同（国服 warstaff=节杖、sceptre=短杖、flail=连枷）。
 - **⚠️ 亵渎/打造/破裂词缀用 explicit id 查价**：市集在售装备按普通外延词缀索引，
   `desecrated.*`/`crafted.*` 分组只命中特殊状态挂单。匹配器对这三类优先取 explicit
@@ -74,13 +74,13 @@ npm install          # 安装 Electron + electron-builder
 
 ```bash
 cd /Users/luyahan/Documents/Work/poe/poe2-cloud-trade-helper/electron
-npm run dist         # 一键：语法检查 → 32 项测试 → 拉最新数据 → 编译 .app → 签名
+npm run dist         # 一键：语法检查 → 全部测试 → 拉最新数据 → 编译 .app → 签名
 ```
 
-`predist` 自动执行 `scripts/prepare-data.js`：
+`predist` 自动执行仓库根的 `scripts/prepare-data.js`：
 - 从 `https://poe.game.qq.com/api/trade2/data/stats` **重新拉取词缀词典**
 - 从 `/api/trade2/data/leagues` **获取当前联赛**（第一个非专家 poe2 联赛）
-- 写入 `build-data/`，随 app 打进 `Resources/build-data/`
+- 写入仓库根 `data/`，随 app 打进 `Resources/build-data/`
 
 `sign-app.js` 对产物做 ad-hoc 签名（含 entitlements），解决新 macOS 上
 Electron V8 JIT 被拒导致的闪退。
@@ -121,8 +121,12 @@ open "/Applications/PoE2查价助手.app"
 ## 测试
 
 ```bash
-npm test     # 32 项测试（解析/匹配/查询/编码/热键/真实 URL/q20 DPS/阈值分离）
-npm run check # 语法校验所有模块
+# 在本目录（electron/）—— 只测宿主层
+npm test      # 4 项：热键旁听（mock uiohook）+ gzip 编码回环
+npm run check # 语法校验所有模块（含 core/）
+
+# 纯业务逻辑测试在仓库根 test/（55 项，不启动 Electron）
+cd .. && npm test        # 或 npm run test:all 跑两边
 ```
 
 ## 已知限制 / 待办
@@ -144,20 +148,59 @@ npm run check # 语法校验所有模块
 
 ## 工程结构
 
+本仓库是三部分：`core/`（共享业务逻辑）+ `electron/`（托盘壳）+ `macos-quickjs/`（原生壳）。
+electron 内部按「宿主能力 / 视图」两层分目录：
+
 ```
-src/
-  main.js          主进程：托盘、模式切换、词典加载、IPC、流水线
-  hotkey.js        全局热键旁听（uiohook listen-only，Ctrl+Alt+C，需辅助功能权限）
-  clipboard.js     装备文本识别（looksLikeItemText，供热键命中后与手动解析用）
-  query.js         构造 trade2 查询 + gzip/base64url 编码
-  settings.js      设置持久化（userData/settings.json）
-  settings.html    设置窗口 UI
-  preload.cjs      设置窗口 IPC 桥
-  lib/
-    parse-item.js  国服简中装备文本解析器
-    weapon-dps.js  EE2 q20 武器面板 DPS 与独立搜索阈值
-    match-stats.js 词缀模板 → 真实 trade id 匹配器
-test/
-  pipeline.test.js 端到端测试
-  weapon-dps.test.js q20、元素分类、腐化与查询阈值回归
+electron/
+  src/
+    host/                【宿主壳层】平台能力，Electron 专属
+      main.js            主进程：托盘、窗口、词典加载、IPC、流水线编排
+      hotkey.js          全局热键旁听（uiohook listen-only，需辅助功能权限）
+      encode.js          查询对象 → gzip → base64url → 市集 URL（node:zlib）
+      settings.js        设置持久化（userData/settings.json）
+
+    ui/                  【视图层】只放界面与 IPC 桥
+      settings.html      设置窗口（内联样式与脚本）
+      preload.cjs        contextBridge 白名单 IPC
+
+  test/
+    host.test.js         仅宿主层：热键旁听（mock uiohook）、gzip 编码回环
+
+  scripts/
+    sign-app.js          ad-hoc 签名
+    qjs-compile-dict.c   compiled.json → QuickJS bjson（可选工具）
 ```
+
+业务逻辑不在 electron 里，而在**仓库根 `core/`**（独立包 `@poe2/core`，
+`parse-item` / `match-stats` / `query` / `weapon-dps` / `defences` / `map-mods` / `item-text`）。
+纯逻辑测试也在仓库根 `test/`（55 项，不启动 Electron）；数据统一在仓库根 `data/`。
+
+### 分层的硬约束
+
+- **core 是独立包，不在 electron 内部**。它在仓库根 `core/`，自带 `package.json`，
+  electron 通过 `file:../core` 依赖它，引用方式是 `require('@poe2/core')`。
+- **core 不许 require 平台模块**。只有 `query.js` 需要 gzip，但它只做 URL 字符串拼接
+  （`buildTradeUrl`），压缩交给宿主。core 里出现 `node:*` 或 `electron` 即为违例。
+- **core 不许反向依赖宿主**（`electron/`、`macos-quickjs/`），依赖方向单向。
+- **core 不读数据文件**。词典由宿主读入后注入，core 只做纯函数变换。
+- **UI 不承载业务规则**。设置页只做字段读写与展示，默认值、阈值逻辑都在 core/host。
+- 这条边界不是洁癖：`macos-quickjs/` 把 `core/` 原样 esbuild 成 ESM 跑在 QuickJS 里，
+  core 一旦混入 Node API，原生壳立刻编译不过。
+
+以上约束由仓库根 `test/architecture.test.js`（15 项）自动守卫，在仓库根跑 `npm test`。
+
+改动位置速查：
+
+| 想改什么 | 改哪里 |
+|---|---|
+| 装备文本解析规则、词缀识别 | `core/parse-item.js`（仓库根） |
+| 词缀匹配不上、id 映射错 | `core/match-stats.js` |
+| 查询条件太松/太严、类别映射 | `core/query.js` |
+| DPS / 防御 / 引路石算法 | `core/weapon-dps.js`、`defences.js`、`map-mods.js` |
+| 词典/联赛数据拉取 | `scripts/prepare-data.js`（仓库根） |
+| 托盘菜单、通知、启动流程 | `src/host/main.js` |
+| 热键不触发、权限问题 | `src/host/hotkey.js` |
+| 设置项增删 | `src/host/settings.js`（DEFAULTS）+ `src/ui/settings.html`（表单字段） |
+| 编码/URL 打不开 | `src/host/encode.js` |
+

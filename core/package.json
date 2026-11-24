@@ -1,0 +1,21 @@
+{
+  "name": "@poe2/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PoE2 国服查价核心：装备文本解析、词缀匹配、trade2 查询构造。零平台依赖，可在 Node / QuickJS 运行",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./parse-item": "./parse-item.js",
+    "./match-stats": "./match-stats.js",
+    "./query": "./query.js",
+    "./weapon-dps": "./weapon-dps.js",
+    "./defences": "./defences.js",
+    "./map-mods": "./map-mods.js",
+    "./item-text": "./item-text.js"
+  },
+  "files": [
+    "*.js"
+  ],
+  "license": "MIT"
+}

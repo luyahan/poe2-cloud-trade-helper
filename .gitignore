@@ -34,3 +34,12 @@ yarn-error.log*
 # Test and coverage output
 coverage/
 .nyc_output/
+
+# 根级 node_modules（仅用于 @poe2/core 本地链接）
+/node_modules/
+
+# 一次性编译产物（源文件 qjs-compile-dict.c 已入库，二进制不入库）
+electron/scripts/qjs-compile-dict
+
+# 本地工作日志
+.workbuddy/
