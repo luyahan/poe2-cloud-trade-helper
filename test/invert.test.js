@@ -31,11 +31,27 @@ test('斯瓦林 0%（满 roll）：进 not 组「没有这个词缀」，and 组
   const { query } = buildQuery(p, matchItem(p, compiled), {});
   const not = query.stats.find((g) => g.type === 'not');
   assert.ok(not, '满 roll 0% 应生成 not 组');
-  assert.deepEqual(not.filters, [{ id: DAMAGE_TAKEN }]);
+  assert.deepEqual(not.filters, [{ id: DAMAGE_TAKEN, value: {}, disabled: false }]);
   const and = query.stats.find((g) => g.type === 'and');
   assert.ok(!and.filters.some((x) => x.id === DAMAGE_TAKEN), 'and 组不应再含承受伤害');
   // 其余词缀不受影响
   assert.ok(and.filters.some((x) => x.id === 'explicit.stat_1062208444'), '护甲提高仍在');
+});
+
+test('斯瓦林 0%：not 组条目与用户标准国服 URL 逐键一致', () => {
+  // 用户提供的标准 URL（2026-11-24）：name=斯瓦林 type=熔铸塔盾，
+  // stats 仅一个 not 组，条目 {id, value:{}, disabled:false}。
+  const zlib = require('node:zlib');
+  const REF = 'H4sIAAAAAAAAE6tWKi5JLCktVrKqVsovKMnMz1OyUkrMq1Sq1VHKS8xNBfKeTVv_fPKyZ_OmK-kolVQWgISet015OXnH04VTns_eBxQFGQE0IboaJp-XXwIUTsvMKUktgkhkpgCFUysKcjKTM0v0QBrijSwNTE0NTY1NTYBqyxJzSoE6q4HWpmQWJyblpAI1pCXmFKfWxgIhAMBQc22nAAAA';
+  const ref = JSON.parse(zlib.gunzipSync(
+    Buffer.from(REF.replace(/-/g, '+').replace(/_/g, '/'), 'base64')).toString('utf8'));
+  const p = parseItemText(readSample('sample-svalinn-2.txt'));
+  const { query } = buildQuery(p, matchItem(p, compiled), {});
+  assert.equal(query.name, ref.name);
+  assert.equal(query.type, ref.type);
+  const not = query.stats.find((g) => g.type === 'not');
+  const refNot = ref.stats.find((g) => g.type === 'not');
+  assert.deepEqual(not.filters, refNot.filters);
 });
 
 test('承受伤害反转按 stat id 数字段判定，rune 变体同样反转', () => {

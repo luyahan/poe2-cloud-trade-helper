@@ -1316,7 +1316,7 @@ var require_query = __commonJS({
         if (match.tradeInvert) {
           const r = stat.rolls?.[match.valueRollIndex ?? 0];
           if (r && r.value === 0) {
-            notFilters.push({ id: match.id });
+            notFilters.push({ id: match.id, value: {}, disabled: false });
             continue;
           }
         }

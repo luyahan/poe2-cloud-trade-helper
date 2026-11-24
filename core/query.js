@@ -127,11 +127,13 @@ function buildQuery(parsedItem, matched, opts = {}) {
     if (seen.has(dedupKey)) continue;
     seen.add(dedupKey);
 
-    // 反转词缀实际 roll 为 0 → 进 not 组（无此词缀），不进 and 组、不参与 pseudo
+    // 反转词缀实际 roll 为 0 → 进 not 组（无此词缀），不进 and 组、不参与 pseudo。
+    // 条目结构经用户提供的标准国服 URL 确认：{id, value:{}, disabled:false}——
+    // not 组条目显式带空 value 与 disabled:false（与 and 组省略写法不同）。
     if (match.tradeInvert) {
       const r = stat.rolls?.[match.valueRollIndex ?? 0];
       if (r && r.value === 0) {
-        notFilters.push({ id: match.id });
+        notFilters.push({ id: match.id, value: {}, disabled: false });
         continue;
       }
     }
