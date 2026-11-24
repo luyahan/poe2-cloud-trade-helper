@@ -10,11 +10,13 @@
  * 整数字段（tier/revives）保留整数下限。
  */
 
+// label 与国服 filters 词典官方 text 对齐（map_magic_monsters=怪物效能、
+// map_rare_monsters=怪物稀有度），旧称保留在解析正则里兼容历史文本。
 const MAP_FIELDS = [
   { property: 'mapTier', filter: 'map_tier', label: '引路石等阶', integer: true },
   { property: 'mapPackSize', filter: 'map_packsize', label: '怪物群规模', integer: false },
-  { property: 'mapMagicMonsters', filter: 'map_magic_monsters', label: '魔法怪物', integer: false },
-  { property: 'mapRareMonsters', filter: 'map_rare_monsters', label: '稀有怪物', integer: false },
+  { property: 'mapMagicMonsters', filter: 'map_magic_monsters', label: '怪物效能', integer: false },
+  { property: 'mapRareMonsters', filter: 'map_rare_monsters', label: '怪物稀有度', integer: false },
   { property: 'mapIir', filter: 'map_iir', label: '物品稀有度', integer: false },
   { property: 'mapRevives', filter: 'map_revives', label: '可用复活次数', integer: true },
   { property: 'mapBonus', filter: 'map_bonus', label: '引路石掉落几率', integer: false },
@@ -28,8 +30,8 @@ const MAP_FIELDS = [
 const MOD_TO_FIELD = [
   { property: 'mapIir', pattern: /(?:区域内发现物品的稀有度|物品稀有度)(?:提高|增加)\s*\+?([\d.]+)/ },
   { property: 'mapPackSize', pattern: /怪物群(?:规模|大小)(?:提高|增加)\s*\+?([\d.]+)/ },
-  { property: 'mapMagicMonsters', pattern: /魔法怪物(?:数量)?(?:提高|增加)\s*\+?([\d.]+)/ },
-  { property: 'mapRareMonsters', pattern: /稀有怪物(?:数量)?(?:提高|增加)\s*\+?([\d.]+)/ },
+  { property: 'mapMagicMonsters', pattern: /(?:怪物效能|魔法怪物(?:数量)?)(?:提高|增加)\s*\+?([\d.]+)/ },
+  { property: 'mapRareMonsters', pattern: /(?:怪物稀有度|稀有怪物(?:数量)?)(?:提高|增加)\s*\+?([\d.]+)/ },
   { property: 'mapBonus', pattern: /引路石掉落几率(?:提高|增加)\s*\+?([\d.]+)/ },
   { property: 'mapGold', pattern: /金币(?:提高|增加)\s*\+?([\d.]+)/ },
   { property: 'mapExperience', pattern: /经验(?:提高|增加)\s*\+?([\d.]+)/ },

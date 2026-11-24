@@ -231,9 +231,9 @@ test('仇恨熔炉：传奇名与基底分列，符文和 ilvl 默认不限制',
   assert.equal(filters.filter(f => f.id.startsWith('rune.')).every(f => f.disabled), true);
 });
 
-// 传奇腐化/鉴定筛选，按「是否已鉴定」分两种情况：
-//   已鉴定：identified=true；corrupted 跟随「被腐化」（有→true，无→false）。
-//   未鉴定：identified=false；corrupted=any（null，未鉴定看不出腐化状态）。
+// 传奇腐化/鉴定筛选：两个标志独立按关键词判定，不做「腐化⇒已鉴定」推断。
+//   corrupted：有腐化关键词→true；无→false；未鉴定且无关键词→any（null）。
+//   identified：有「未鉴定」→false；否则 true。
 // 字段写法与位置经真实国服 URL 确认（misc_filters.filters.{corrupted,identified}）。
 test('仇恨熔炉：已鉴定已腐化传奇写 corrupted=true + identified=true', () => {
   const p = parseItemText(hateforge);
@@ -255,12 +255,31 @@ test('传奇：已鉴定未腐化（无「被腐化」行）写 corrupted=false 
   assert.deepEqual(query.filters.misc_filters.filters.identified, { option: 'true' });
 });
 
-test('传奇：未鉴定写 identified=false + corrupted=any', () => {
-  const p = parseItemText(hateforge + '\n未鉴定');
+test('传奇：未鉴定且无腐化关键词写 identified=false + corrupted=any', () => {
+  const p = parseItemText(hateforge.replace(/^被腐化\s*$/m, '') + '\n未鉴定');
   assert.equal(p.unidentified, true, '「未鉴定」行应被解析');
+  assert.ok(!p.corrupted);
   const { query } = buildQuery(p, matchItem(p, compiled), {});
   assert.deepEqual(query.filters.misc_filters.filters.identified, { option: 'false' });
   assert.deepEqual(query.filters.misc_filters.filters.corrupted, { option: null });
+});
+
+test('传奇：未鉴定+被腐化并存时两标志各按关键词（不推断腐化⇒已鉴定）', () => {
+  const p = parseItemText(hateforge + '\n未鉴定');
+  assert.equal(p.unidentified, true);
+  assert.equal(p.corrupted, true);
+  const { query } = buildQuery(p, matchItem(p, compiled), {});
+  assert.deepEqual(query.filters.misc_filters.filters.identified, { option: 'false' });
+  assert.deepEqual(query.filters.misc_filters.filters.corrupted, { option: 'true' });
+});
+
+test('传奇：「双重腐化」识别为 corrupted=true（真实珠宝样本）', () => {
+  const jewel = readFileSync(join(here, '../data/sample-jewel-grand-spectrum.txt'), 'utf8');
+  const p = parseItemText(jewel);
+  assert.equal(p.corrupted, true, '双重腐化应标记腐化');
+  const { query } = buildQuery(p, matchItem(p, compiled), {});
+  assert.deepEqual(query.filters.misc_filters.filters.corrupted, { option: 'true' });
+  assert.deepEqual(query.filters.misc_filters.filters.identified, { option: 'true' });
 });
 
 test('非传奇：不写 misc_filters 腐化/鉴定筛选', () => {

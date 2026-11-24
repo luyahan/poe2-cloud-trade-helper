@@ -33,6 +33,7 @@ const CATEGORY_BY_ITEM_CLASS = {
   '箭袋': 'armour.quiver', '盾': 'armour.shield', '盾牌': 'armour.shield',
   '法器': 'armour.focus', '轻盾': 'armour.buckler',
   '项链': 'accessory.amulet', '腰带': 'accessory.belt', '戒指': 'accessory.ring',
+  '珠宝': 'jewel', // 国服顶层 option「任何珠宝」，无子类
   '生命药剂': 'flask.life', '魔力药剂': 'flask.mana', '咒符': 'flask.charm',
   '引路石': 'map.waystone', '日志': 'map.logbook', '石板': 'map.tablet',
   '预兆': 'currency.omen', '符文': 'currency.rune', '灵核': 'currency.soulcore',
@@ -208,19 +209,25 @@ function buildQuery(parsedItem, matched, opts = {}) {
     };
   }
 
-  // 传奇：腐化 + 鉴定状态筛选（misc_filters）。按「是否已鉴定」分两种情况：
-  //   已鉴定（无「未鉴定」）：identified=true；corrupted 跟随「被腐化」关键词
-  //     （有→true，无→false）。被腐化的装备一定已鉴定，故 identified 恒 true。
-  //   未鉴定（含「未鉴定」）：identified=false；corrupted=any（null）——
-  //     未鉴定看不出腐化状态，不限制。
+  // 腐化 + 鉴定状态筛选（misc_filters）。传奇与引路石都写（腐化与否对两者
+  // 价格影响都大；珠宝等其余类别暂不写，避免无谓缩小结果）。
+  //
+  // 两个标志相互独立，各按文本关键词判定：
+  //   corrupted：有腐化关键词（被腐化/双重腐化）→true；无→false；
+  //     仅当「未鉴定且无腐化关键词」时才 any（null，看不出腐化状态）。
+  //   identified：有「未鉴定」→false；否则 true。
+  // ⚠️ 旧版曾假设「腐化⇒已鉴定」，把未鉴定+腐化的物品 identified 强写 true、
+  //   corrupted 丢弃为 null——真实文本里未鉴定与双重腐化可以并存（如未鉴定
+  //   腐化珠宝），该假设错误。现在关键词说什么就是什么，不做推断。
   // 字段写法与位置经真实国服 URL 确认：misc_filters.filters.{corrupted,identified}
   // 各为 { option: 'true'|'false'|null }，组级 disabled: false。
-  if (parsedItem.rarity === '传奇') {
+  if (parsedItem.rarity === '传奇' || parsedItem.category === '引路石') {
     const unidentified = !!parsedItem.unidentified;
+    const corrupted = !!parsedItem.corrupted;
     query.filters.misc_filters = {
       disabled: false,
       filters: {
-        corrupted: { option: unidentified ? null : (parsedItem.corrupted ? 'true' : 'false') },
+        corrupted: { option: corrupted ? 'true' : (unidentified ? null : 'false') },
         identified: { option: unidentified ? 'false' : 'true' },
       },
     };

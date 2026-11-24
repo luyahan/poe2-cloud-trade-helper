@@ -150,12 +150,60 @@ function matchStatLine(stat, groups, compiled) {
 }
 
 /**
+ * 整条词缀（全部数值行拼接）匹配多行词典条目。
+ * 词典里有些词缀是跨行整体（如浮华珠宝「含有被腐化的魔法珠宝的\n珠宝插槽
+ * 天赋效果提高 #%」），逐行匹配必然全 MISS。先整条试，命中则整条出一个 id，
+ * 不再逐行拆分。归一化会压缩换行，与词典 normalizeDictText 同口径。
+ */
+function matchWholeMod(mod, groups, compiled) {
+  const stats = mod.stats || [];
+  if (stats.length < 2) return null;
+  const joined = stats.map((s) => s.text).join('\n');
+  const key = normalizeTemplate(joined);
+  for (const gid of groups) {
+    const map = compiled[gid];
+    if (!map) continue;
+    const hits = map.get(key);
+    if (hits && hits.length) {
+      const chosen = hits[0];
+      // roll 取整条文本里词典 # 对应的那个数值（跨行累计计数）
+      const valueIndex = dictValueRollIndex(chosen.text);
+      const allRolls = stats.flatMap((s) => s.rolls || []);
+      const stat = {
+        text: joined,
+        template: stats.map((s) => s.template).join(' '),
+        rolls: allRolls,
+      };
+      return {
+        stat,
+        match: {
+          id: chosen.id,
+          text: chosen.text,
+          group: gid,
+          confidence: 'normalized',
+          ambiguous: hits.length > 1,
+          valueRollIndex: valueIndex,
+        },
+      };
+    }
+  }
+  return null;
+}
+
+/**
  * 给一条解析出的词缀匹配 trade id（支持多行混合词缀，每行各出一个 id）
  * @param mod  parseItemText 产出的 mod（含 type / stats[]）
  * @returns [{ stat, match }]  每行一个结果，match 可能为 null
  */
 function matchMod(mod, compiled) {
   const groups = TYPE_GROUP_PRIORITY[mod.type] || ['explicit'];
+  // 多行词缀先整条匹配（词典跨行条目）；命中即整条一个 id
+  const whole = matchWholeMod(mod, groups, compiled);
+  if (whole) {
+    // 与逐行路径一致：把已核实 ID 记到首个数值行，供面板反推使用
+    if (mod.stats?.[0]) mod.stats[0].tradeId = whole.match.id;
+    return [whole];
+  }
   return (mod.stats || []).map((rawStat) => {
     const tags = Array.isArray(mod.tags) ? mod.tags : (mod.tags || '').split(/[,，]/).map((tag) => tag.trim());
     // 游戏复制文本省略「(区域)」，但护甲元信息表明这是局部防御词缀。

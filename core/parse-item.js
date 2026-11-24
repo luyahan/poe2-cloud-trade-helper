@@ -19,7 +19,7 @@ const { calcDefences } = require('./defences.js');
 // { [亵渎的|打造的|已破裂] 前缀属性|后缀属性|基底属性 ["名字"] (等阶：N) — tag1, tag2 }
 // 名字与等阶均可选：基底属性行无名字无 tier，如 { 基底属性 — 攻击 }
 const MOD_LINE =
-  /^\{\s*(?<special>亵渎的|打造的|已破裂|已工艺)?\s*(?<gen>前缀属性|后缀属性|前缀词缀|后缀词缀|固定词缀|基底属性|传奇属性|瓦尔传奇词缀)\s*(?:"(?<name>[^"]*)"|“(?<nameCN>[^”]*)”)?\s*(?:\(等阶：(?<tier>\d+)\))?\s*(?:\(阶级：(?<rank>\d+)\))?\s*(?:—\s*(?<tags>[^}]*))?\}$/;
+  /^\{\s*(?<special>亵渎的|打造的|已破裂|已工艺)?\s*(?<gen>前缀属性|后缀属性|前缀词缀|后缀词缀|固定词缀|基底属性|传奇属性|瓦尔传奇词缀|腐化强化)\s*(?:"(?<name>[^"]*)"|“(?<nameCN>[^”]*)”)?\s*(?:\(等阶：(?<tier>\d+)\))?\s*(?:\(阶级：(?<rank>\d+)\))?\s*(?:—\s*(?<tags>[^}]*))?\}$/;
 
 // 获得技能行（武器基底自带技能，如「获得技能: 战矛飞掷」）
 const GRANT_SKILL_LINE = /^获得技能:\s*(.+)$/;
@@ -46,11 +46,13 @@ const HEADER_FIELDS = [
   { pattern: /^格挡(?:几率|率)?:\s*([\d.]+)%/, target: 'block' },
   { pattern: /^精魂:\s*(\d+)/, target: 'spirit' },
   { pattern: /^插槽:\s*(.+)$/, field: 'sockets', text: true },
-  // 引路石面板字段（map_filters）
+  // 引路石面板字段（map_filters）。字段名以国服 filters 词典官方 text 为准：
+  // map_magic_monsters=「怪物效能」、map_rare_monsters=「怪物稀有度」，
+  // 旧文本变体（魔法怪物/稀有怪物数量）一并保留。
   { pattern: /^(?:引路石)?等阶:\s*(\d+)/, target: 'mapTier' },
   { pattern: /^怪物群(?:大小|规模):\s*\+?([\d.]+)%/, target: 'mapPackSize' },
-  { pattern: /^魔法怪物(?:数量)?:\s*\+?([\d.]+)%/, target: 'mapMagicMonsters' },
-  { pattern: /^稀有怪物(?:数量)?:\s*\+?([\d.]+)%/, target: 'mapRareMonsters' },
+  { pattern: /^(?:怪物效能|魔法怪物(?:数量)?):\s*\+?([\d.]+)%/, target: 'mapMagicMonsters' },
+  { pattern: /^(?:怪物稀有度|稀有怪物(?:数量)?):\s*\+?([\d.]+)%/, target: 'mapRareMonsters' },
   { pattern: /^物品稀有度:\s*\+?([\d.]+)%/, target: 'mapIir' },
   { pattern: /^(?:可用)?(?:复活|挑战)次数:\s*(\d+)/, target: 'mapRevives' },
   { pattern: /^(?:引路石)?掉落几率:\s*\+?([\d.]+)%/, target: 'mapBonus' },
@@ -80,12 +82,16 @@ function isFlavourText(text) {
   if (/^\{/.test(text)) return false;
   if (/\((rune|implicit|enchant|crafted|fractured|desecrated|augmented)\)/.test(text)) return false;
   if (/^获得技能:/.test(text)) return false;
-  if (/^被腐化/.test(text)) return false;
+  if (CORRUPTED_LINE.test(text)) return false;
   if (/^未鉴定/.test(text)) return false;
+  // 使用说明行（珠宝/引路石等）不是 flavour text，也不属于词缀
+  if (/^放置到一个天赋树/.test(text)) return false;
+  if (/^可在地图装置中使用/.test(text)) return false;
   // 含数值（roll 区间）的一定不是 flavour text
   if (/\d/.test(text)) return false;
-  // 中文叙事句：以中文逗号/句号结尾，或整行都是中文字符
-  return /[，。]$/.test(text) || /^[一-龥，。、；：""''（）\s]+$/.test(text);
+  // 中文叙事句：以中文逗号/句号/省略号结尾，或整行都是中文字符
+  return /[，。]$/.test(text) || /…$/.test(text) ||
+    /^[一-龥，。、；：""''（）…\s]+$/.test(text);
 }
 
 // 从一条词缀文本里抽出所有 (value, min, max)
@@ -118,10 +124,14 @@ function goodness(roll, better = 'positive') {
   return Math.round(g * 1000) / 1000;
 }
 
+// 腐化标记关键词族：被腐化 / 双重腐化（瓦尔腐化两次）等。
+// 「双重腐化」同样意味着已腐化，漏认会让腐化货被 corrupted=false 排除。
+const CORRUPTED_LINE = /^(?:被腐化|双重腐化)/;
+
 /** 头部字段：逐行按字段表取第一个命中 */
 function parseHeader(lines, item) {
   for (const line of lines) {
-    if (/^被腐化/.test(line)) { item.corrupted = true; continue; }
+    if (CORRUPTED_LINE.test(line)) { item.corrupted = true; continue; }
     if (/^未鉴定/.test(line)) { item.unidentified = true; continue; }
     const physical = line.match(PHYSICAL_DAMAGE_LINE);
     if (physical) {
@@ -157,6 +167,18 @@ function parseNames(lines, item) {
   }
 }
 
+// 引路石基底名携带等阶：真实文本是「引路石（ 15 阶）」，没有独立等阶行。
+// 等阶提取进 properties.mapTier；baseName 归一为「引路石」——市集 type 匹配
+// 认的是基底名，带等阶后缀的整串会匹配失败（同「黄金戒指」虚构名教训）。
+const WAYSTONE_BASE = /^引路石\s*[（(]\s*(?:等阶\s*)?(\d+)\s*(?:阶)?\s*[)）]$/;
+function normalizeWaystoneBase(item) {
+  if (item.category !== '引路石' || !item.baseName) return;
+  const m = item.baseName.match(WAYSTONE_BASE);
+  if (!m) return;
+  if (item.properties.mapTier == null) item.properties.mapTier = Number(m[1]);
+  item.baseName = '引路石';
+}
+
 const SPECIAL_MOD_TYPE = { 亵渎的: 'Desecrated', 打造的: 'Crafted', 已破裂: 'Fractured' };
 const GENERATION = {
   前缀属性: 'prefix', 前缀词缀: 'prefix',
@@ -166,6 +188,8 @@ const GENERATION = {
 /** { ... } 元信息行 → 新词缀骨架（数值行随后追加） */
 function modFromInfoLine(groups) {
   return {
+    // 腐化强化（双重腐化珠宝的附加属性）按 Explicit 处理：
+    // 市集在售装备按外延词缀索引，与亵渎/打造同策略。
     type: SPECIAL_MOD_TYPE[groups.special] || (groups.gen === '基底属性' ? 'Implicit' : 'Explicit'),
     generation: GENERATION[groups.gen] || 'implicit',
     name: groups.name || groups.nameCN || undefined,
@@ -222,8 +246,11 @@ function parseMods(lines, item) {
     // 跳过无关尾行（「引路石掉落」等）。头部字段行已在 modRegionStarted 之前被跳过，
     // 这里不再按字段名过滤，否则会误杀「物理伤害提高 20% (rune)」这类词缀。
     if (/^引路石掉落/.test(trimmed)) continue;
+    // 使用说明行（引路石/珠宝底部固定文案）不是词缀
+    if (/^可在地图装置中使用/.test(trimmed)) continue;
+    if (/^放置到一个天赋树/.test(trimmed)) continue;
     // 腐化/鉴定标记：不是词缀，只设 item 标志
-    if (/^被腐化/.test(trimmed)) { item.corrupted = true; continue; }
+    if (CORRUPTED_LINE.test(trimmed)) { item.corrupted = true; continue; }
     if (/^未鉴定/.test(trimmed)) { item.unidentified = true; continue; }
     // flavour text（传奇装备底部的背景描述）不属于任何词缀：
     // 当前词缀已有数值行时先收尾，后续 flavour 行直接跳过。
@@ -280,6 +307,7 @@ function parseItemText(raw) {
   // 3) 头部字段与名称
   parseHeader(lines, item);
   parseNames(lines, item);
+  normalizeWaystoneBase(item);
 
   // 4) 词缀
   parseMods(lines, item);

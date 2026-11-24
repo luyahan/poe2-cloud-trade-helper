@@ -113,6 +113,71 @@ test('引路石：calcMapMods 只返回有面板/词缀的字段', () => {
   assert.deepEqual(Object.keys(mods).sort(), ['mapRevives', 'mapTier']);
 });
 
+// ---- 真实样本回归（2026-11-24 用户粘贴，等阶在基底名里）----
+const readSample = (name) => require('node:fs').readFileSync(
+  require('node:path').join(__dirname, '../data', name), 'utf8');
+
+test('引路石真实样本：基底名「引路石（ 15 阶）」提取等阶，type 归一为「引路石」', () => {
+  const item = parseItemText(readSample('sample-waystone-t15.txt'));
+  assert.equal(item.baseName, '引路石');
+  assert.equal(item.properties.mapTier, 15);
+  const { query } = buildQuery(item, matchItem(item, compiled), {});
+  assert.equal(query.type, '引路石');
+  assert.equal(query.filters.map_filters.filters.map_tier.min, 15);
+});
+
+test('引路石真实样本：怪物稀有度/怪物效能面板字段（国服官方 text）', () => {
+  const item = parseItemText(readSample('sample-waystone-t15.txt'));
+  assert.equal(item.properties.mapRareMonsters, 43);
+  assert.equal(item.properties.mapMagicMonsters, 13);
+  const { query } = buildQuery(item, matchItem(item, compiled), {});
+  const mf = query.filters.map_filters.filters;
+  assert.equal(mf.map_rare_monsters.min, Math.floor(43 * 0.98)); // 42
+  assert.equal(mf.map_magic_monsters.min, Math.floor(13 * 0.98)); // 12
+});
+
+test('引路石真实样本：未鉴定写 identified=false，查询非空（type+map_tier）', () => {
+  const item = parseItemText(readSample('sample-waystone-unid.txt'));
+  assert.equal(item.unidentified, true);
+  assert.equal(item.properties.mapTier, 15);
+  const { query } = buildQuery(item, matchItem(item, compiled), {});
+  assert.deepEqual(query.filters.misc_filters.filters.identified, { option: 'false' });
+  assert.deepEqual(query.filters.misc_filters.filters.corrupted, { option: null });
+  assert.equal(query.type, '引路石');
+  assert.equal(query.filters.map_filters.filters.map_tier.min, 15);
+  // 未鉴定无面板词缀，但 type/map_tier/misc 构成有效查询
+  const panelCount = Object.values(query.filters)
+    .reduce((n, g) => n + Object.keys(g.filters || {}).length, 0);
+  assert.ok(panelCount > 0, '未鉴定引路石不应是空查询');
+});
+
+test('引路石真实样本：腐化写 corrupted=true（15阶与16阶）', () => {
+  for (const [file, tier] of [['sample-waystone-corrupted.txt', 15], ['sample-waystone-t16-corrupted.txt', 16]]) {
+    const item = parseItemText(readSample(file));
+    assert.equal(item.corrupted, true);
+    assert.equal(item.properties.mapTier, tier);
+    const { query } = buildQuery(item, matchItem(item, compiled), {});
+    assert.deepEqual(query.filters.misc_filters.filters.corrupted, { option: 'true' });
+    assert.deepEqual(query.filters.misc_filters.filters.identified, { option: 'true' });
+    assert.equal(query.filters.map_filters.filters.map_tier.min, tier);
+  }
+});
+
+test('引路石真实样本：16阶腐化词缀无等阶标签仍全部解析，负区间不拆分', () => {
+  const item = parseItemText(readSample('sample-waystone-t16-corrupted.txt'));
+  assert.equal(item.mods.length, 6);
+  assert.ok(item.mods.every((m) => m.tier === undefined));
+  const res = item.mods.find((m) => m.name === '曝露之');
+  assert.deepEqual(res.stats[0].rolls, [{ value: -7, min: -8, max: -6 }]);
+});
+
+test('引路石：已鉴定未腐化写 corrupted=false + identified=true', () => {
+  const item = parseItemText(readSample('sample-waystone-t15.txt'));
+  const { query } = buildQuery(item, matchItem(item, compiled), {});
+  assert.deepEqual(query.filters.misc_filters.filters.corrupted, { option: 'false' });
+  assert.deepEqual(query.filters.misc_filters.filters.identified, { option: 'true' });
+});
+
 test('引路石：面板 augmented 已含词缀加成时不重复累加', () => {
   const text = `物品类别: 引路石
 稀 有 度: 稀有

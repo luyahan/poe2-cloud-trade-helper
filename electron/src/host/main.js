@@ -160,8 +160,12 @@ async function handleItemText(text) {
 
     rebuildTrayMenu();
 
-    // 防线：一条词缀都没匹配上时不打开空查询（避免无意义页面），提示用户检查
-    if (totalFilters === 0) {
+    // 防线：词缀与面板筛选都没有时才拦（避免无意义页面）。
+    // 未鉴定引路石/珠宝没有词缀，但 type/map_tier/misc 等面板筛选仍是有效查询，
+    // 不能只看 stats[0] 词缀数——否则这类物品永远打不开市集。
+    const panelFilterCount = Object.values(query.filters)
+      .reduce((n, group) => n + Object.keys(group.filters || {}).length, 0);
+    if (totalFilters === 0 && panelFilterCount === 0) {
       notify(`⚠ ${parsed.name || parsed.baseName || '装备'}：未匹配到任何词缀（命中 0/${matched.length}），未打开市集。请确认复制的是高级描述文本（Ctrl+Alt+C）。`);
       return;
     }
