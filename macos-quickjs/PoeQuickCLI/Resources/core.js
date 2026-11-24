@@ -28,20 +28,49 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../core/weapon-dps.js
-var require_weapon_dps = __commonJS({
-  "../core/weapon-dps.js"(exports, module) {
-    var ELEMENT_NAMES = {
-      fire: "\u706B\u7130",
-      cold: "\u51B0\u971C",
-      lightning: "\u95EA\u7535"
-    };
-    function statTexts(item) {
-      return (item.mods || []).flatMap((mod) => (mod.stats || []).map((stat) => stat.text || ""));
-    }
+// ../core/roll-utils.js
+var require_roll_utils = __commonJS({
+  "../core/roll-utils.js"(exports, module) {
     function emptyRoll() {
       return { value: 0, min: 0, max: 0 };
     }
+    function addRollMatch(target, m) {
+      const value = Number(m[1]);
+      target.value += value;
+      target.min += Number(m[2] ?? value);
+      target.max += Number(m[3] ?? value);
+    }
+    function addRolls(target, rolls) {
+      for (const roll of rolls) {
+        target.value += roll.value;
+        target.min += roll.min;
+        target.max += roll.max;
+      }
+    }
+    function isModifiable(item) {
+      return !item.corrupted && !item.isCorrupted && !item.mirrored && !item.isMirrored && !item.sanctified && !item.isSanctified;
+    }
+    function effectiveQuality(item) {
+      const quality = item.quality ?? 0;
+      return isModifiable(item) ? Math.max(20, quality) : quality;
+    }
+    function statTexts(item) {
+      return (item.mods || []).flatMap((mod) => (mod.stats || []).map((stat) => stat.text || ""));
+    }
+    module.exports = { emptyRoll, addRollMatch, addRolls, isModifiable, effectiveQuality, statTexts };
+  }
+});
+
+// ../core/weapon-dps.js
+var require_weapon_dps = __commonJS({
+  "../core/weapon-dps.js"(exports, module) {
+    var { emptyRoll, addRollMatch, effectiveQuality, statTexts } = require_roll_utils();
+    var ELEMENTS = ["fire", "cold", "lightning"];
+    var ELEMENT_NAMES = { fire: "\u706B\u7130", cold: "\u51B0\u971C", lightning: "\u95EA\u7535" };
+    var FLAT_DAMAGE_TARGET = { \u7269\u7406: "physicalFlat", \u706B\u7130: "fire", \u51B0\u971C: "cold", \u95EA\u7535: "lightning" };
+    var PHYSICAL_INCREASED = /^物理伤害提高\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*%/;
+    var FLAT_DAMAGE = /^(?:攻击)?附加\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*-\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*(物理|火焰|冰霜|闪电)伤害/;
+    var ATTACK_SPEED_INCREASED = /^攻击速度提高\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*%/;
     function sumDamageStats(item) {
       const totals = {
         physicalFlat: emptyRoll(),
@@ -51,26 +80,19 @@ var require_weapon_dps = __commonJS({
         lightning: emptyRoll()
       };
       for (const text of statTexts(item)) {
-        const increased2 = text.match(/^物理伤害提高\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*%/);
+        const increased2 = text.match(PHYSICAL_INCREASED);
         if (increased2) {
-          totals.physicalIncreased.value += Number(increased2[1]);
-          totals.physicalIncreased.min += Number(increased2[2] ?? increased2[1]);
-          totals.physicalIncreased.max += Number(increased2[3] ?? increased2[1]);
+          addRollMatch(totals.physicalIncreased, increased2);
           continue;
         }
-        const flat = text.match(/^(?:攻击)?附加\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*-\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*(物理|火焰|冰霜|闪电)伤害/);
+        const flat = text.match(FLAT_DAMAGE);
         if (!flat) continue;
-        const roll = {
-          min: (Number(flat[1]) + Number(flat[4])) / 2,
-          max: (Number(flat[1]) + Number(flat[4])) / 2,
-          value: (Number(flat[1]) + Number(flat[4])) / 2
-        };
-        roll.min = (Number(flat[2] ?? flat[1]) + Number(flat[5] ?? flat[4])) / 2;
-        roll.max = (Number(flat[3] ?? flat[1]) + Number(flat[6] ?? flat[4])) / 2;
-        const target = flat[7] === "\u7269\u7406" ? totals.physicalFlat : flat[7] === "\u706B\u7130" ? totals.fire : flat[7] === "\u51B0\u971C" ? totals.cold : totals.lightning;
-        target.value += roll.value;
-        target.min += roll.min;
-        target.max += roll.max;
+        const low = Number(flat[1]);
+        const high = Number(flat[4]);
+        const target = totals[FLAT_DAMAGE_TARGET[flat[7]]];
+        target.value += (low + high) / 2;
+        target.min += (Number(flat[2] ?? flat[1]) + Number(flat[5] ?? flat[4])) / 2;
+        target.max += (Number(flat[3] ?? flat[1]) + Number(flat[6] ?? flat[4])) / 2;
       }
       return totals;
     }
@@ -87,17 +109,58 @@ var require_weapon_dps = __commonJS({
           element = Object.entries(ELEMENT_NAMES).find(([, name]) => texts.some((text) => text.includes(`\u9644\u52A0`) && text.includes(`${name}\u4F24\u5BB3`)))?.[0];
         }
         if (!element || !totals[element]) continue;
-        totals[element].value = (Number(match[1]) + Number(match[2])) / 2;
-        totals[element].min = totals[element].value;
-        totals[element].max = totals[element].value;
+        const average = (Number(match[1]) + Number(match[2])) / 2;
+        totals[element] = { value: average, min: average, max: average };
       }
       return totals;
     }
-    function isModifiable(item) {
-      return !item.corrupted && !item.isCorrupted && !item.mirrored && !item.isMirrored && !item.sanctified && !item.isSanctified;
+    function sumAttackSpeed(item, aps) {
+      const increased2 = emptyRoll();
+      for (const text of statTexts(item)) {
+        const match = text.match(ATTACK_SPEED_INCREASED);
+        if (match) addRollMatch(increased2, match);
+      }
+      const base = aps / (1 + increased2.value / 100);
+      return {
+        value: aps,
+        min: base * (1 + increased2.min / 100),
+        max: base * (1 + increased2.max / 100),
+        base,
+        increased: increased2
+      };
     }
     function increased(flat, increasedPct, qualityPct) {
       return flat * (1 + increasedPct / 100) * (1 + qualityPct / 100);
+    }
+    function calcPhysicalAverage(props, stats, quality, q20, hasElemental) {
+      const physical = props.physicalDamage;
+      const hasPhysical = physical && Number.isFinite(physical.min) && Number.isFinite(physical.max) && physical.min + physical.max > 0;
+      if (!hasPhysical) {
+        if (!hasElemental && stats.physicalFlat.value > 0) {
+          return { ...stats.physicalFlat, base: 0, quality: 0, estimatedFromFlatOnly: true };
+        }
+        return void 0;
+      }
+      const currentAverage = (physical.min + physical.max) / 2;
+      const increasedPct = stats.physicalIncreased.value;
+      const base = currentAverage / ((1 + quality / 100) * (1 + increasedPct / 100)) - stats.physicalFlat.value;
+      const min = increased(base + stats.physicalFlat.min, stats.physicalIncreased.min, q20);
+      const max = increased(base + stats.physicalFlat.max, stats.physicalIncreased.max, q20);
+      return {
+        value: increased(base + stats.physicalFlat.value, increasedPct, q20),
+        min: Math.min(min, max),
+        max: Math.max(min, max),
+        base,
+        quality: q20
+      };
+    }
+    function rollDps(entries, attackSpeed) {
+      const sum = (key) => entries.reduce((total, entry) => total + entry[key], 0);
+      return {
+        value: sum("value") * attackSpeed.value,
+        min: sum("min") * attackSpeed.min,
+        max: sum("max") * attackSpeed.max
+      };
     }
     function calcWeaponDps(item) {
       const props = item.properties || {};
@@ -105,71 +168,27 @@ var require_weapon_dps = __commonJS({
       if (!Number.isFinite(aps) || aps <= 0) return void 0;
       const stats = sumDamageStats(item);
       const headerElements = parseElementalHeader(props.elementalDamage, item.mods);
-      let attackSpeedIncreased = emptyRoll();
-      for (const text of statTexts(item)) {
-        const match = text.match(/^攻击速度提高\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*%/);
-        if (!match) continue;
-        attackSpeedIncreased.value += Number(match[1]);
-        attackSpeedIncreased.min += Number(match[2] ?? match[1]);
-        attackSpeedIncreased.max += Number(match[3] ?? match[1]);
-      }
-      const baseAttackSpeed = aps / (1 + attackSpeedIncreased.value / 100);
-      const attackSpeed = {
-        value: aps,
-        min: baseAttackSpeed * (1 + attackSpeedIncreased.min / 100),
-        max: baseAttackSpeed * (1 + attackSpeedIncreased.max / 100),
-        base: baseAttackSpeed,
-        increased: attackSpeedIncreased
-      };
-      const physical = props.physicalDamage;
-      const hasPhysical = physical && Number.isFinite(physical.min) && Number.isFinite(physical.max) && physical.min + physical.max > 0;
-      const hasElemental = Object.values(headerElements).some((entry) => entry.value > 0) || ["fire", "cold", "lightning"].some((element) => stats[element].value > 0);
-      const physicalOnlyFromFlat = !hasPhysical && !hasElemental && stats.physicalFlat.value > 0;
+      const attackSpeed = sumAttackSpeed(item, aps);
       const quality = item.quality ?? 0;
-      const q20 = isModifiable(item) ? Math.max(20, quality) : quality;
-      let physicalAverage;
-      if (physicalOnlyFromFlat) {
-        physicalAverage = {
-          value: stats.physicalFlat.value,
-          min: stats.physicalFlat.min,
-          max: stats.physicalFlat.max,
-          base: 0,
-          quality: 0,
-          estimatedFromFlatOnly: true
-        };
-      } else if (hasPhysical) {
-        const currentAverage = (physical.min + physical.max) / 2;
-        const increasedPct = stats.physicalIncreased.value;
-        const base = currentAverage / ((1 + quality / 100) * (1 + increasedPct / 100)) - stats.physicalFlat.value;
-        const value = increased(base + stats.physicalFlat.value, increasedPct, q20);
-        const min = increased(base + stats.physicalFlat.min, stats.physicalIncreased.min, q20);
-        const max = increased(base + stats.physicalFlat.max, stats.physicalIncreased.max, q20);
-        physicalAverage = { value, min: Math.min(min, max), max: Math.max(min, max), base, quality: q20 };
-      }
+      const q20 = effectiveQuality(item);
+      const hasElemental = ELEMENTS.some((element) => headerElements[element].value > 0 || stats[element].value > 0);
+      const physicalAverage = calcPhysicalAverage(props, stats, quality, q20, hasElemental);
       const elements = {};
       let hasElementalDamage = false;
-      for (const element of Object.keys(ELEMENT_NAMES)) {
+      for (const element of ELEMENTS) {
         const header = headerElements[element];
         const local = stats[element];
         if (header.value <= 0 && local.value <= 0) continue;
         hasElementalDamage = true;
         const value = header.value > 0 ? header.value : local.value;
-        elements[element] = { value, min: local.min, max: local.max };
-        if (local.value <= 0) {
-          elements[element].min = value;
-          elements[element].max = value;
-        }
+        elements[element] = local.value > 0 ? { value, min: local.min, max: local.max } : { value, min: value, max: value };
       }
-      if (!hasPhysical && !hasElemental && !physicalOnlyFromFlat) return void 0;
-      const roll = (averages) => ({
-        value: averages.reduce((sum, entry) => sum + entry.value, 0) * attackSpeed.value,
-        min: averages.reduce((sum, entry) => sum + entry.min, 0) * attackSpeed.min,
-        max: averages.reduce((sum, entry) => sum + entry.max, 0) * attackSpeed.max
-      });
+      if (!physicalAverage && !hasElementalDamage) return void 0;
+      const pDPS = physicalAverage ? rollDps([physicalAverage], attackSpeed) : void 0;
       const elemental = Object.values(elements);
-      const pDPS = hasPhysical || physicalOnlyFromFlat ? roll([physicalAverage]) : void 0;
-      const eDPS = hasElemental ? roll(elemental) : void 0;
-      const totalDPS = hasElemental ? roll([...hasPhysical || physicalOnlyFromFlat ? [physicalAverage] : [], ...elemental]) : void 0;
+      const eDPS = hasElementalDamage ? rollDps(elemental, attackSpeed) : void 0;
+      const totalDPS = hasElementalDamage ? rollDps([...physicalAverage ? [physicalAverage] : [], ...elemental], attackSpeed) : void 0;
+      const round = (dps) => dps ? Math.round(dps.value) : void 0;
       return {
         attackSpeed,
         physicalAverage,
@@ -178,9 +197,9 @@ var require_weapon_dps = __commonJS({
         eDPS,
         totalDPS,
         display: {
-          pDPS: pDPS ? Math.round(pDPS.value) : void 0,
-          eDPS: eDPS ? Math.round(eDPS.value) : void 0,
-          totalDPS: totalDPS ? Math.round(totalDPS.value) : void 0,
+          pDPS: round(pDPS),
+          eDPS: round(eDPS),
+          totalDPS: round(totalDPS),
           fireDPS: elements.fire ? Math.round(elements.fire.value * attackSpeed.value) : void 0,
           coldDPS: elements.cold ? Math.round(elements.cold.value * attackSpeed.value) : void 0,
           lightningDPS: elements.lightning ? Math.round(elements.lightning.value * attackSpeed.value) : void 0
@@ -195,6 +214,7 @@ var require_weapon_dps = __commonJS({
       return Math.max(theoreticalMin, Math.floor(requested));
     }
     function addDpsFilters(query, item, opts = {}) {
+      var _a;
       if (opts.dps === false) return void 0;
       const dps = calcWeaponDps(item);
       if (!dps) return void 0;
@@ -203,13 +223,13 @@ var require_weapon_dps = __commonJS({
       if (dps.totalDPS) filters.dps = { min: searchMin(dps.totalDPS, item.rarity, rangePercent) };
       if (dps.pDPS) filters.pdps = { min: searchMin(dps.pDPS, item.rarity, rangePercent) };
       if (dps.eDPS) filters.edps = { min: searchMin(dps.eDPS, item.rarity, rangePercent) };
-      if (opts.dpsMin != null || opts.pdpsMin != null || opts.edpsMin != null) {
-        for (const key of ["dps", "pdps", "edps"]) {
-          const requested = opts[`${key}Min`] ?? opts.dpsMin;
-          if (filters[key] && requested != null) filters[key].min = Math.floor(requested);
-        }
+      for (const key of ["dps", "pdps", "edps"]) {
+        const requested = opts[`${key}Min`] ?? opts.dpsMin;
+        if (filters[key] && requested != null) filters[key].min = Math.floor(requested);
       }
-      query.filters.equipment_filters = { disabled: false, filters };
+      const equipment = (_a = query.filters).equipment_filters ?? (_a.equipment_filters = { disabled: false, filters: {} });
+      equipment.disabled = false;
+      Object.assign(equipment.filters, filters);
       return dps;
     }
     module.exports = { calcWeaponDps, searchMin, addDpsFilters };
@@ -220,36 +240,37 @@ var require_weapon_dps = __commonJS({
 var require_defences = __commonJS({
   "../core/defences.js"(exports, module) {
     var { searchMin } = require_weapon_dps();
+    var { emptyRoll, addRollMatch, addRolls, effectiveQuality, statTexts } = require_roll_utils();
+    var NUM_WITH_RANGE = String.raw`(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?`;
     var DEFENCES = {
       armour: {
         property: "armour",
         filter: "ar",
         label: "\u62A4\u7532",
-        flat: /^\+?(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*护甲$/,
-        increased: /^护甲提高\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*%/
+        flat: /^\+?NUM\s*护甲$/
       },
       evasion: {
         property: "evasion",
         filter: "ev",
         label: "\u95EA\u907F",
-        flat: /^\+?(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*(?:点)?闪避值$/,
-        increased: /^闪避值提高\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*%/
+        flat: /^\+?NUM\s*(?:点)?闪避值$/
       },
       energyShield: {
         property: "energyShield",
         filter: "es",
         label: "\u80FD\u91CF\u62A4\u76FE",
-        flat: /^\+?(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*(?:点)?能量护盾(?:上限)?$/,
-        increased: /^能量护盾(?:上限)?提高\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*%/
+        flat: /^\+?NUM\s*(?:点)?能量护盾(?:上限)?$/
       },
       ward: {
         property: "ward",
         filter: "ward",
         label: "\u7B26\u6587\u7ED3\u754C",
-        flat: /^\+?(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*符文(?:结界|壁垒)(?:上限)?$/,
-        increased: /^符文(?:结界|壁垒)(?:上限)?提高\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*%/
+        flat: /^\+?NUM\s*符文(?:结界|壁垒)(?:上限)?$/
       }
     };
+    for (const definition of Object.values(DEFENCES)) {
+      definition.flat = new RegExp(definition.flat.source.replaceAll("NUM", NUM_WITH_RANGE));
+    }
     var HYBRID_INCREASED = [
       { ids: ["explicit.stat_3523867985", "rune.stat_3523867985"], targets: ["armour", "evasion", "energyShield"] },
       { ids: ["explicit.stat_2451402625", "crafted.stat_2451402625"], targets: ["armour", "evasion"] },
@@ -261,75 +282,64 @@ var require_defences = __commonJS({
       evasion: ["explicit.stat_124859000", "explicit.stat_2106365538"],
       energyShield: ["explicit.stat_4015621042", "explicit.stat_2482852589"]
     };
-    function emptyRoll() {
-      return { value: 0, min: 0, max: 0 };
+    function collectRollsById(item, matched) {
+      const byId = /* @__PURE__ */ new Map();
+      const push = (id, roll) => {
+        if (!id || !roll) return;
+        if (!byId.has(id)) byId.set(id, []);
+        byId.get(id).push({ value: roll.value, min: roll.min ?? roll.value, max: roll.max ?? roll.value });
+      };
+      if (matched.length) {
+        for (const { stat, match } of matched) {
+          push(match?.id || stat?.tradeId, stat?.rolls?.[match?.valueRollIndex ?? 0]);
+        }
+      } else {
+        for (const mod of item.mods || []) {
+          for (const stat of mod.stats || []) push(stat.tradeId, stat.rolls?.[0]);
+        }
+      }
+      return byId;
     }
-    function addRoll(target, match) {
-      const value = Number(match[1]);
-      target.value += value;
-      target.min += Number(match[2] ?? value);
-      target.max += Number(match[3] ?? value);
+    function sumLocalIncreased(byId, ids) {
+      const total = emptyRoll();
+      const ordered = [...ids].sort((a, b) => Number(byId.has(b)) - Number(byId.has(a)));
+      for (const id of ordered) {
+        if (!byId.has(id)) continue;
+        addRolls(total, byId.get(id));
+        break;
+      }
+      return total;
     }
-    function isModifiable(item) {
-      return !item.corrupted && !item.isCorrupted && !item.mirrored && !item.isMirrored && !item.sanctified && !item.isSanctified;
+    function sumHybridIncreased(byId, key) {
+      const total = emptyRoll();
+      for (const hybrid of HYBRID_INCREASED) {
+        if (!hybrid.targets.includes(key)) continue;
+        for (const id of hybrid.ids) addRolls(total, byId.get(id) || []);
+      }
+      return total;
     }
-    function statLines(item) {
-      return (item.mods || []).flatMap((mod) => (mod.stats || []).map((stat) => stat.text || ""));
+    function constantEntry(filter, label, panel) {
+      return { filter, label, panel, value: panel, min: panel, max: panel, display: panel };
     }
     function calcDefences(item, matched = []) {
       const props = item.properties || {};
       const quality = item.quality ?? 0;
-      const q20 = isModifiable(item) ? Math.max(20, quality) : quality;
+      const q20 = effectiveQuality(item);
+      const byId = collectRollsById(item, matched);
+      const texts = statTexts(item);
       const output = {};
-      const byId = /* @__PURE__ */ new Map();
-      for (const { stat, match } of matched) {
-        if (!stat?.rolls?.length) continue;
-        const id = match?.id || stat.tradeId;
-        if (!id) continue;
-        const roll = stat.rolls[match?.valueRollIndex ?? 0];
-        if (!roll) continue;
-        const entry = { value: roll.value, min: roll.min ?? roll.value, max: roll.max ?? roll.value };
-        if (!byId.has(id)) byId.set(id, []);
-        byId.get(id).push(entry);
-      }
-      if (!matched.length) {
-        for (const mod of item.mods || []) for (const stat of mod.stats || []) {
-          if (!stat.tradeId || !stat.rolls?.length) continue;
-          const roll = stat.rolls[0];
-          const entry = { value: roll.value, min: roll.min ?? roll.value, max: roll.max ?? roll.value };
-          if (!byId.has(stat.tradeId)) byId.set(stat.tradeId, []);
-          byId.get(stat.tradeId).push(entry);
-        }
-      }
       for (const [key, definition] of Object.entries(DEFENCES)) {
         const panel = props[definition.property];
         if (!Number.isFinite(panel) || panel <= 0) continue;
         const flat = emptyRoll();
+        for (const text of texts) {
+          const match = text.match(definition.flat);
+          if (match) addRollMatch(flat, match);
+        }
+        const local = sumLocalIncreased(byId, LOCAL_INCREASED_IDS[key] || []);
+        const hybrid = sumHybridIncreased(byId, key);
         const increased = emptyRoll();
-        const localIds = LOCAL_INCREASED_IDS[key] || [];
-        const orderedIds = [...localIds].sort((a, b) => Number(byId.has(b)) - Number(byId.has(a)));
-        for (const id of orderedIds) {
-          for (const roll of byId.get(id) || []) {
-            increased.value += roll.value;
-            increased.min += roll.min;
-            increased.max += roll.max;
-          }
-          if (byId.has(id)) break;
-        }
-        for (const hybrid of HYBRID_INCREASED) {
-          if (!hybrid.targets.includes(key)) continue;
-          for (const id of hybrid.ids) {
-            for (const roll of byId.get(id) || []) {
-              increased.value += roll.value;
-              increased.min += roll.min;
-              increased.max += roll.max;
-            }
-          }
-        }
-        for (const text of statLines(item)) {
-          const singleFlat = text.match(definition.flat);
-          if (singleFlat) addRoll(flat, singleFlat);
-        }
+        addRolls(increased, [local, hybrid]);
         const base = panel / ((1 + quality / 100) * (1 + increased.value / 100)) - flat.value;
         const atQuality = (flatValue, increasedValue) => (base + flatValue) * (1 + increasedValue / 100) * (1 + q20 / 100);
         const value = atQuality(flat.value, increased.value);
@@ -349,12 +359,8 @@ var require_defences = __commonJS({
           display: Math.round(value)
         };
       }
-      if (Number.isFinite(props.block) && props.block > 0) {
-        output.block = { filter: "block", label: "\u683C\u6321", panel: props.block, value: props.block, min: props.block, max: props.block, display: props.block };
-      }
-      if (Number.isFinite(props.spirit) && props.spirit > 0) {
-        output.spirit = { filter: "spirit", label: "\u7CBE\u9B42", panel: props.spirit, value: props.spirit, min: props.spirit, max: props.spirit, display: props.spirit };
-      }
+      if (Number.isFinite(props.block) && props.block > 0) output.block = constantEntry("block", "\u683C\u6321", props.block);
+      if (Number.isFinite(props.spirit) && props.spirit > 0) output.spirit = constantEntry("spirit", "\u7CBE\u9B42", props.spirit);
       return Object.keys(output).length ? output : void 0;
     }
     function addDefenceFilters(query, item, opts = {}, matched = []) {
@@ -365,7 +371,7 @@ var require_defences = __commonJS({
       const rangePercent = opts.defenceRangePercent ?? opts.dpsRangePercent ?? 2;
       const equipment = (_a = query.filters).equipment_filters ?? (_a.equipment_filters = { disabled: false, filters: {} });
       equipment.disabled = false;
-      for (const [key, defence] of Object.entries(defences)) {
+      for (const defence of Object.values(defences)) {
         const override = opts[`${defence.filter}Min`];
         equipment.filters[defence.filter] = {
           min: override != null ? Math.floor(override) : searchMin(defence, item.rarity, rangePercent)
@@ -380,10 +386,40 @@ var require_defences = __commonJS({
 // ../core/parse-item.js
 var require_parse_item = __commonJS({
   "../core/parse-item.js"(exports, module) {
+    var { calcWeaponDps } = require_weapon_dps();
+    var { calcDefences } = require_defences();
     var MOD_LINE = /^\{\s*(?<special>亵渎的|打造的|已破裂|已工艺)?\s*(?<gen>前缀属性|后缀属性|前缀词缀|后缀词缀|固定词缀|基底属性|传奇属性|瓦尔传奇词缀)\s*(?:"(?<name>[^"]*)"|“(?<nameCN>[^”]*)”)?\s*(?:\(等阶：(?<tier>\d+)\))?\s*(?:\(阶级：(?<rank>\d+)\))?\s*(?:—\s*(?<tags>[^}]*))?\}$/;
     var GRANT_SKILL_LINE = /^获得技能:\s*(.+)$/;
     var NUM_RANGE = /(?<sign>[+-]?)(?<value>\d+(?:\.\d+)?)\s*(?:\((?<min>[+-]?\d+(?:\.\d+)?)\s*[-–—]\s*(?<max>[+-]?\d+(?:\.\d+)?)\))?/g;
     var SECTION_SEP = /^-{4,}$/;
+    var TAGGED_PLAIN = /\((rune|implicit|enchant|crafted|fractured|desecrated)\)\s*$/;
+    var HEADER_FIELDS = [
+      { pattern: /^物品类别:\s*(.+)$/, field: "category", text: true },
+      { pattern: /^稀\s*有\s*度:\s*(.+)$/, field: "rarity", text: true },
+      { pattern: /^物品等级:\s*(\d+)/, field: "itemLevel" },
+      { pattern: /^品质:\s*\+?(\d+)%/, field: "quality" },
+      { pattern: /^护甲:\s*(\d+)/, target: "armour" },
+      { pattern: /^闪避(?:值)?:\s*(\d+)/, target: "evasion" },
+      { pattern: /^能量护盾(?:上限)?:\s*(\d+)/, target: "energyShield" },
+      { pattern: /^符文(?:结界|壁垒):\s*(\d+)/, target: "ward" },
+      { pattern: /^格挡(?:几率|率)?:\s*([\d.]+)%/, target: "block" },
+      { pattern: /^精魂:\s*(\d+)/, target: "spirit" },
+      { pattern: /^插槽:\s*(.+)$/, field: "sockets", text: true },
+      // 引路石面板字段（map_filters）
+      { pattern: /^(?:引路石)?等阶:\s*(\d+)/, target: "mapTier" },
+      { pattern: /^怪物群(?:大小|规模):\s*\+?([\d.]+)%/, target: "mapPackSize" },
+      { pattern: /^魔法怪物(?:数量)?:\s*\+?([\d.]+)%/, target: "mapMagicMonsters" },
+      { pattern: /^稀有怪物(?:数量)?:\s*\+?([\d.]+)%/, target: "mapRareMonsters" },
+      { pattern: /^物品稀有度:\s*\+?([\d.]+)%/, target: "mapIir" },
+      { pattern: /^(?:可用)?(?:复活|挑战)次数:\s*(\d+)/, target: "mapRevives" },
+      { pattern: /^(?:引路石)?掉落几率:\s*\+?([\d.]+)%/, target: "mapBonus" },
+      { pattern: /^金币:\s*\+?([\d.]+)%/, target: "mapGold" },
+      { pattern: /^经验:\s*\+?([\d.]+)%/, target: "mapExperience" },
+      { pattern: /^暴击率:\s*([\d.]+)%/, target: "critChance" },
+      { pattern: /^每秒攻击次数:\s*([\d.]+)/, target: "attackSpeed" },
+      { pattern: /^元素伤害:\s*(.+)$/, target: "elementalDamage", text: true }
+    ];
+    var PHYSICAL_DAMAGE_LINE = /^物理伤害:\s*(\d+)-(\d+)/;
     function detectModType(statLines) {
       const joined = statLines.join("\n");
       if (/\(rune\)\s*$/m.test(joined)) return "Rune";
@@ -423,6 +459,140 @@ var require_parse_item = __commonJS({
       if (better === "negative") g = 1 - g;
       return Math.round(g * 1e3) / 1e3;
     }
+    function parseHeader(lines, item) {
+      for (const line of lines) {
+        if (/^被腐化/.test(line)) {
+          item.corrupted = true;
+          continue;
+        }
+        if (/^未鉴定/.test(line)) {
+          item.unidentified = true;
+          continue;
+        }
+        const physical = line.match(PHYSICAL_DAMAGE_LINE);
+        if (physical) {
+          item.properties.physicalDamage = { min: Number(physical[1]), max: Number(physical[2]) };
+          continue;
+        }
+        for (const { pattern, field, target, text } of HEADER_FIELDS) {
+          const m = line.match(pattern);
+          if (!m) continue;
+          const value = text ? m[1].trim() : Number(m[1]);
+          if (field) item[field] = value;
+          else item.properties[target] = value;
+          break;
+        }
+      }
+    }
+    function parseNames(lines, item) {
+      const rarityIdx = lines.findIndex((l) => /^稀\s*有\s*度:/.test(l));
+      if (rarityIdx < 0) return;
+      const nameLines = [];
+      for (let i = rarityIdx + 1; i < lines.length; i++) {
+        if (SECTION_SEP.test(lines[i])) break;
+        if (/^[^:：]+[:：]/.test(lines[i])) continue;
+        if (lines[i].trim()) nameLines.push(lines[i].trim());
+      }
+      if (nameLines.length >= 2) {
+        item.name = nameLines[0];
+        item.baseName = nameLines[nameLines.length - 1];
+      } else if (nameLines.length === 1) {
+        item.baseName = nameLines[0];
+      }
+    }
+    var SPECIAL_MOD_TYPE = { \u4EB5\u6E0E\u7684: "Desecrated", \u6253\u9020\u7684: "Crafted", \u5DF2\u7834\u88C2: "Fractured" };
+    var GENERATION = {
+      \u524D\u7F00\u5C5E\u6027: "prefix",
+      \u524D\u7F00\u8BCD\u7F00: "prefix",
+      \u540E\u7F00\u5C5E\u6027: "suffix",
+      \u540E\u7F00\u8BCD\u7F00: "suffix"
+    };
+    function modFromInfoLine(groups) {
+      return {
+        type: SPECIAL_MOD_TYPE[groups.special] || (groups.gen === "\u57FA\u5E95\u5C5E\u6027" ? "Implicit" : "Explicit"),
+        generation: GENERATION[groups.gen] || "implicit",
+        name: groups.name || groups.nameCN || void 0,
+        tier: groups.tier ? Number(groups.tier) : void 0,
+        rank: groups.rank ? Number(groups.rank) : void 0,
+        tags: groups.tags ? groups.tags.split(",").map((s) => s.trim()).filter(Boolean) : [],
+        statLines: []
+      };
+    }
+    function pushGrantedSkill(item, skillName, rawLine) {
+      item.grantedSkills ?? (item.grantedSkills = []);
+      item.grantedSkills.push(skillName);
+      item.mods.push({
+        type: "Skill",
+        generation: void 0,
+        name: skillName,
+        tier: void 0,
+        tags: [],
+        statLines: [rawLine]
+      });
+    }
+    function parseMods(lines, item) {
+      let modRegionStarted = false;
+      let current = null;
+      const pendingPlain = [];
+      const flush = () => {
+        if (current) {
+          item.mods.push(current);
+          current = null;
+        }
+      };
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        if (SECTION_SEP.test(trimmed)) {
+          flush();
+          continue;
+        }
+        const info = trimmed.match(MOD_LINE);
+        const isTaggedPlain = TAGGED_PLAIN.test(trimmed);
+        const skill = trimmed.match(GRANT_SKILL_LINE);
+        if (!modRegionStarted) {
+          if (!info && !isTaggedPlain && !skill) continue;
+          modRegionStarted = true;
+        }
+        if (info) {
+          flush();
+          current = modFromInfoLine(info.groups);
+          continue;
+        }
+        if (skill) {
+          flush();
+          pushGrantedSkill(item, skill[1].trim(), trimmed);
+          continue;
+        }
+        if (/^引路石掉落/.test(trimmed)) continue;
+        if (/^被腐化/.test(trimmed)) {
+          item.corrupted = true;
+          continue;
+        }
+        if (/^未鉴定/.test(trimmed)) {
+          item.unidentified = true;
+          continue;
+        }
+        if (current && current.statLines.length > 0 && isFlavourText(trimmed)) {
+          flush();
+          continue;
+        }
+        if (!current && item.mods.length > 0 && isFlavourText(trimmed)) continue;
+        if (current) current.statLines.push(trimmed);
+        else pendingPlain.push(trimmed);
+      }
+      flush();
+      for (const pl of pendingPlain) {
+        item.mods.push({
+          type: detectModType([pl]),
+          generation: void 0,
+          name: void 0,
+          tier: void 0,
+          tags: [],
+          statLines: [pl]
+        });
+      }
+    }
     function parseItemText2(raw) {
       let text = raw.replace(/\r\n?/g, "\n").trim();
       const firstAnchor = text.indexOf("\u7269\u54C1\u7C7B\u522B:");
@@ -444,142 +614,9 @@ var require_parse_item = __commonJS({
         mods: [],
         unidentified: false
       };
-      for (const line of lines) {
-        let m;
-        if (m = line.match(/^物品类别:\s*(.+)$/)) item.category = m[1].trim();
-        else if (m = line.match(/^稀\s*有\s*度:\s*(.+)$/)) item.rarity = m[1].trim();
-        else if (m = line.match(/^物品等级:\s*(\d+)/)) item.itemLevel = Number(m[1]);
-        else if (m = line.match(/^品质:\s*\+?(\d+)%/)) item.quality = Number(m[1]);
-        else if (m = line.match(/^护甲:\s*(\d+)/)) item.properties.armour = Number(m[1]);
-        else if (m = line.match(/^闪避(?:值)?:\s*(\d+)/)) item.properties.evasion = Number(m[1]);
-        else if (m = line.match(/^能量护盾(?:上限)?:\s*(\d+)/)) item.properties.energyShield = Number(m[1]);
-        else if (m = line.match(/^符文(?:结界|壁垒):\s*(\d+)/)) item.properties.ward = Number(m[1]);
-        else if (m = line.match(/^格挡(?:几率|率)?:\s*([\d.]+)%/)) item.properties.block = Number(m[1]);
-        else if (m = line.match(/^精魂:\s*(\d+)/)) item.properties.spirit = Number(m[1]);
-        else if (m = line.match(/^插槽:\s*(.+)$/)) item.sockets = m[1].trim();
-        else if (m = line.match(/^(?:引路石)?等阶:\s*(\d+)/)) item.properties.mapTier = Number(m[1]);
-        else if (m = line.match(/^怪物群(?:大小|规模):\s*\+?([\d.]+)%/)) item.properties.mapPackSize = Number(m[1]);
-        else if (m = line.match(/^魔法怪物(?:数量)?:\s*\+?([\d.]+)%/)) item.properties.mapMagicMonsters = Number(m[1]);
-        else if (m = line.match(/^稀有怪物(?:数量)?:\s*\+?([\d.]+)%/)) item.properties.mapRareMonsters = Number(m[1]);
-        else if (m = line.match(/^物品稀有度:\s*\+?([\d.]+)%/)) item.properties.mapIir = Number(m[1]);
-        else if (m = line.match(/^(?:可用)?(?:复活|挑战)次数:\s*(\d+)/)) item.properties.mapRevives = Number(m[1]);
-        else if (m = line.match(/^(?:引路石)?掉落几率:\s*\+?([\d.]+)%/)) item.properties.mapBonus = Number(m[1]);
-        else if (m = line.match(/^金币:\s*\+?([\d.]+)%/)) item.properties.mapGold = Number(m[1]);
-        else if (m = line.match(/^经验:\s*\+?([\d.]+)%/)) item.properties.mapExperience = Number(m[1]);
-        else if (m = line.match(/^物理伤害:\s*(\d+)-(\d+)/))
-          item.properties.physicalDamage = { min: Number(m[1]), max: Number(m[2]) };
-        else if (m = line.match(/^暴击率:\s*([\d.]+)%/))
-          item.properties.critChance = Number(m[1]);
-        else if (m = line.match(/^每秒攻击次数:\s*([\d.]+)/))
-          item.properties.attackSpeed = Number(m[1]);
-        else if (/^被腐化/.test(line)) item.corrupted = true;
-        else if (/^未鉴定/.test(line)) item.unidentified = true;
-        else if (m = line.match(/^元素伤害:\s*(.+)$/))
-          item.properties.elementalDamage = m[1].trim();
-      }
-      const rarityIdx = lines.findIndex((l) => /^稀\s*有\s*度:/.test(l));
-      if (rarityIdx >= 0) {
-        const nameLines = [];
-        for (let i = rarityIdx + 1; i < lines.length; i++) {
-          if (SECTION_SEP.test(lines[i])) break;
-          if (/^[^:：]+[:：]/.test(lines[i])) continue;
-          if (lines[i].trim()) nameLines.push(lines[i].trim());
-        }
-        if (nameLines.length >= 2) {
-          item.name = nameLines[0];
-          item.baseName = nameLines[nameLines.length - 1];
-        } else if (nameLines.length === 1) {
-          item.baseName = nameLines[0];
-        }
-      }
-      let modRegionStarted = false;
-      let current = null;
-      let pendingPlain = [];
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        if (SECTION_SEP.test(trimmed)) {
-          if (current) {
-            item.mods.push(current);
-            current = null;
-          }
-          continue;
-        }
-        const isModInfo = MOD_LINE.test(trimmed);
-        const isTaggedPlain = /\((rune|implicit|enchant|crafted|fractured|desecrated)\)\s*$/.test(trimmed);
-        const isGrantSkill = GRANT_SKILL_LINE.test(trimmed);
-        if (!modRegionStarted) {
-          if (isModInfo || isTaggedPlain || isGrantSkill) modRegionStarted = true;
-          else continue;
-        }
-        const mm = trimmed.match(MOD_LINE);
-        if (mm) {
-          if (current) item.mods.push(current);
-          const g = mm.groups;
-          const isBase = g.gen === "\u57FA\u5E95\u5C5E\u6027";
-          current = {
-            type: g.special === "\u4EB5\u6E0E\u7684" ? "Desecrated" : g.special === "\u6253\u9020\u7684" ? "Crafted" : g.special === "\u5DF2\u7834\u88C2" ? "Fractured" : isBase ? "Implicit" : "Explicit",
-            generation: /^(前缀属性|前缀词缀)$/.test(g.gen) ? "prefix" : /^(后缀属性|后缀词缀)$/.test(g.gen) ? "suffix" : "implicit",
-            name: g.name || g.nameCN || void 0,
-            tier: g.tier ? Number(g.tier) : void 0,
-            rank: g.rank ? Number(g.rank) : void 0,
-            tags: g.tags ? g.tags.split(",").map((s) => s.trim()).filter(Boolean) : [],
-            statLines: []
-          };
-          continue;
-        }
-        const gs = trimmed.match(GRANT_SKILL_LINE);
-        if (gs) {
-          if (current) {
-            item.mods.push(current);
-            current = null;
-          }
-          item.grantedSkills ?? (item.grantedSkills = []);
-          item.grantedSkills.push(gs[1].trim());
-          item.mods.push({
-            type: "Skill",
-            generation: void 0,
-            name: gs[1].trim(),
-            tier: void 0,
-            tags: [],
-            statLines: [trimmed]
-          });
-          continue;
-        }
-        if (/^引路石掉落/.test(trimmed)) continue;
-        if (/^被腐化/.test(trimmed)) {
-          item.corrupted = true;
-          continue;
-        }
-        if (/^未鉴定/.test(trimmed)) {
-          item.unidentified = true;
-          continue;
-        }
-        if (current && current.statLines.length > 0 && isFlavourText(trimmed)) {
-          item.mods.push(current);
-          current = null;
-          continue;
-        }
-        if (!current && item.mods.length > 0 && isFlavourText(trimmed)) {
-          continue;
-        }
-        if (current) {
-          current.statLines.push(trimmed);
-        } else {
-          pendingPlain.push(trimmed);
-        }
-      }
-      if (current) item.mods.push(current);
-      for (const pl of pendingPlain) {
-        item.mods.push({
-          type: detectModType([pl]),
-          generation: void 0,
-          name: void 0,
-          tier: void 0,
-          tags: [],
-          statLines: [pl]
-        });
-      }
+      parseHeader(lines, item);
+      parseNames(lines, item);
+      parseMods(lines, item);
       for (const mod of item.mods) {
         mod.stats = mod.statLines.map((sl) => {
           const rolls = extractRolls(sl);
@@ -592,9 +629,7 @@ var require_parse_item = __commonJS({
         });
         delete mod.statLines;
       }
-      const { calcWeaponDps } = require_weapon_dps();
       const weaponDps = calcWeaponDps(item);
-      const { calcDefences } = require_defences();
       const defences = calcDefences(item);
       if (weaponDps || defences) item.derived = { weaponDps, defences };
       return item;
@@ -807,12 +842,8 @@ var require_map_mods = __commonJS({
         const entry = mapMods[def.property];
         if (!entry) continue;
         const override = opts[`${def.filter}Min`];
-        if (override != null) {
-          mapFilters.filters[def.filter] = { min: def.integer ? Math.floor(override) : Math.floor(override) };
-          continue;
-        }
-        const value = entry.value;
-        const min = def.integer ? Math.max(0, Math.floor(value)) : Math.max(0, Math.floor(value * (1 - percent)));
+        const value = override != null ? override : entry.value;
+        const min = override != null || def.integer ? Math.max(0, Math.floor(value)) : Math.max(0, Math.floor(value * (1 - percent)));
         mapFilters.filters[def.filter] = { min };
       }
       return mapMods;
@@ -899,6 +930,17 @@ var require_pseudo = __commonJS({
       if (typeof value.max === "number") return value.max;
       return null;
     }
+    function collectRows(candidates, ruleOf) {
+      const rows = [];
+      for (const candidate of candidates) {
+        const rule = ruleOf(candidate);
+        if (rule == null) continue;
+        const value = resolveValue(candidate.value);
+        if (value === null) continue;
+        rows.push({ candidate, rule, value });
+      }
+      return rows;
+    }
     function makeSuggestion(id, sources, enabled, value) {
       return {
         id,
@@ -909,14 +951,7 @@ var require_pseudo = __commonJS({
       };
     }
     function buildResistanceSuggestions(candidates) {
-      const rows = [];
-      for (const candidate of candidates) {
-        const rule = RESISTANCE_STATS[ruleKey(candidate.id)];
-        if (!rule) continue;
-        const value = resolveValue(candidate.value);
-        if (value === null) continue;
-        rows.push({ candidate, rule, value });
-      }
+      const rows = collectRows(candidates, (c) => RESISTANCE_STATS[ruleKey(c.id)]);
       if (rows.length === 0) return [];
       const elements = { fire: 0, cold: 0, lightning: 0 };
       for (const row of rows) {
@@ -971,18 +1006,11 @@ var require_pseudo = __commonJS({
       return suggestions;
     }
     function buildAttributeSuggestions(candidates) {
-      const rows = [];
-      for (const candidate of candidates) {
-        const attributes = ATTRIBUTE_STATS[ruleKey(candidate.id)];
-        if (!attributes) continue;
-        const value = resolveValue(candidate.value);
-        if (value === null) continue;
-        rows.push({ candidate, attributes, value });
-      }
+      const rows = collectRows(candidates, (c) => ATTRIBUTE_STATS[ruleKey(c.id)]);
       if (rows.length === 0) return [];
       const totals = { strength: 0, dexterity: 0, intelligence: 0 };
       for (const row of rows) {
-        for (const attribute of row.attributes) totals[attribute] += row.value;
+        for (const attribute of row.rule) totals[attribute] += row.value;
       }
       const suggestions = [];
       for (const [attribute, id] of [
@@ -991,7 +1019,7 @@ var require_pseudo = __commonJS({
         ["intelligence", "pseudo.pseudo_total_intelligence"]
       ]) {
         if (totals[attribute] <= 0) continue;
-        const attributeRows = rows.filter((row) => row.attributes.includes(attribute));
+        const attributeRows = rows.filter((row) => row.rule.includes(attribute));
         suggestions.push(makeSuggestion(
           id,
           attributeRows.map((row) => row.candidate),
@@ -999,7 +1027,7 @@ var require_pseudo = __commonJS({
           totals[attribute]
         ));
       }
-      const universalRows = rows.filter((row) => row.attributes.length === 3);
+      const universalRows = rows.filter((row) => row.rule.length === 3);
       const universal = universalRows.reduce((sum, row) => sum + row.value, 0);
       if (universal > 0) {
         suggestions.push(makeSuggestion(
@@ -1020,36 +1048,27 @@ var require_pseudo = __commonJS({
       return suggestions;
     }
     function buildLifeManaSuggestions(candidates) {
-      const rows = [];
-      for (const candidate of candidates) {
-        const key = ruleKey(candidate.id);
-        if (key !== LIFE_STAT && key !== MANA_STAT) continue;
-        const value = resolveValue(candidate.value);
-        if (value === null) continue;
-        rows.push({ candidate, key, value });
-      }
+      const rows = collectRows(candidates, (c) => {
+        const key = ruleKey(c.id);
+        return key === LIFE_STAT || key === MANA_STAT ? key : null;
+      });
       if (rows.length === 0) return [];
       const suggestions = [];
       for (const [directKey, attribute, id, rate, enabled] of [
         [LIFE_STAT, "strength", "pseudo.pseudo_total_life", ATTRIBUTE_TO_LIFE, true],
         [MANA_STAT, "intelligence", "pseudo.pseudo_total_mana", ATTRIBUTE_TO_MANA, false]
       ]) {
-        const direct = rows.filter((row) => row.key === directKey);
+        const direct = rows.filter((row) => row.rule === directKey);
         if (direct.length === 0) continue;
         const directTotal = direct.reduce((sum, row) => sum + row.value, 0);
-        const attributeRows = [];
-        let attributeTotal = 0;
-        for (const candidate of candidates) {
-          const attributes = ATTRIBUTE_STATS[ruleKey(candidate.id)];
-          if (!attributes || !attributes.includes(attribute)) continue;
-          const value = resolveValue(candidate.value);
-          if (value === null) continue;
-          attributeRows.push(candidate);
-          attributeTotal += value;
-        }
+        const attributeRows = collectRows(candidates, (c) => {
+          const attributes = ATTRIBUTE_STATS[ruleKey(c.id)];
+          return attributes && attributes.includes(attribute) ? attributes : null;
+        });
+        const attributeTotal = attributeRows.reduce((sum, row) => sum + row.value, 0);
         suggestions.push(makeSuggestion(
           id,
-          [...direct.map((row) => row.candidate), ...attributeRows],
+          [...direct.map((row) => row.candidate), ...attributeRows.map((row) => row.candidate)],
           enabled,
           directTotal + attributeTotal * rate
         ));
@@ -1057,19 +1076,15 @@ var require_pseudo = __commonJS({
       return suggestions;
     }
     function buildMovementSuggestions(candidates) {
-      const sources = [];
-      for (const candidate of candidates) {
-        if (ruleKey(candidate.id) !== MOVEMENT_STAT) continue;
-        if (resolveValue(candidate.value) === null) continue;
-        sources.push(candidate);
-      }
-      if (sources.length === 0) return [];
+      const rows = collectRows(candidates, (c) => ruleKey(c.id) === MOVEMENT_STAT || null);
+      if (rows.length === 0) return [];
+      const sources = rows.map((row) => row.candidate);
       const implicitOnly = sources.length === 1 && /^implicit\./i.test(sources[0].id);
       return [makeSuggestion(
         "pseudo.pseudo_increased_movement_speed",
         sources,
         !implicitOnly,
-        sources.reduce((sum, candidate) => sum + resolveValue(candidate.value), 0)
+        rows.reduce((sum, row) => sum + row.value, 0)
       )];
     }
     function buildTabletSuggestions(candidates) {
@@ -1109,6 +1124,10 @@ var require_pseudo = __commonJS({
 // ../core/query.js
 var require_query = __commonJS({
   "../core/query.js"(exports, module) {
+    var { addDpsFilters } = require_weapon_dps();
+    var { addDefenceFilters } = require_defences();
+    var { addMapFilters } = require_map_mods();
+    var { buildPseudoFilters } = require_pseudo();
     var CATEGORY_BY_ITEM_CLASS = {
       "\u722A": "weapon.claw",
       "\u5315\u9996": "weapon.dagger",
@@ -1183,12 +1202,22 @@ var require_query = __commonJS({
       if (match.tradeInvert) return r.max != null ? { max: r.max } : { max: r.value };
       return { min: r.min != null ? r.min : r.value };
     }
-    var { addDpsFilters } = require_weapon_dps();
-    var { addDefenceFilters } = require_defences();
-    var { addMapFilters } = require_map_mods();
-    var { buildPseudoFilters } = require_pseudo();
+    var RARITY_OPTION = { "\u7A00\u6709": "rare", "\u4F20\u5947": "unique", "\u9B54\u6CD5": "magic", "\u666E\u901A": "normal" };
+    function addSocketFilters(query, item, opts = {}) {
+      var _a;
+      if (opts.sockets === false) return void 0;
+      const raw = item.sockets;
+      if (typeof raw !== "string" || !raw.trim()) return void 0;
+      const count = raw.trim().split(/\s+/).filter(Boolean).length;
+      if (!count) return void 0;
+      const equipment = (_a = query.filters).equipment_filters ?? (_a.equipment_filters = { disabled: false, filters: {} });
+      equipment.disabled = false;
+      const override = opts.socketsMin;
+      equipment.filters.rune_sockets = { min: override != null ? Math.floor(override) : count };
+      return count;
+    }
     function buildQuery2(parsedItem, matched, opts = {}) {
-      var _a, _b;
+      var _a, _b, _c;
       const {
         tierMax = 2,
         includeUntiered = false,
@@ -1243,7 +1272,6 @@ var require_query = __commonJS({
       if (category) {
         query.filters.type_filters = { filters: { category: { option: category } } };
       }
-      const RARITY_OPTION = { "\u7A00\u6709": "rare", "\u4F20\u5947": "unique", "\u9B54\u6CD5": "magic", "\u666E\u901A": "normal" };
       const rarityOpt = RARITY_OPTION[parsedItem.rarity];
       if (rarityOpt) {
         (_a = query.filters).type_filters ?? (_a.type_filters = { filters: {} });
@@ -1252,6 +1280,13 @@ var require_query = __commonJS({
       if (parsedItem.itemLevel != null && parsedItem.rarity !== "\u4F20\u5947") {
         (_b = query.filters).type_filters ?? (_b.type_filters = { filters: {} });
         query.filters.type_filters.filters.ilvl = { min: parsedItem.itemLevel };
+      }
+      if (parsedItem.quality != null && parsedItem.quality > 20 && opts.quality !== false) {
+        (_c = query.filters).type_filters ?? (_c.type_filters = { filters: {} });
+        const override = opts.qualityMin;
+        query.filters.type_filters.filters.quality = {
+          min: override != null ? Math.floor(override) : parsedItem.quality
+        };
       }
       if (parsedItem.rarity === "\u4F20\u5947") {
         const unidentified = !!parsedItem.unidentified;
@@ -1266,7 +1301,8 @@ var require_query = __commonJS({
       const weaponDps = addDpsFilters(query, parsedItem, opts);
       const defences = addDefenceFilters(query, parsedItem, opts, matched);
       const mapMods = addMapFilters(query, parsedItem, opts);
-      return { query, league, weaponDps, defences, mapMods, pseudo: pseudoResult };
+      const socketCount = addSocketFilters(query, parsedItem, opts);
+      return { query, league, weaponDps, defences, mapMods, socketCount, pseudo: pseudoResult };
     }
     function adjustThreshold(value, rangePercent = 0) {
       const percent = Math.max(0, Math.min(100, rangePercent)) / 100;

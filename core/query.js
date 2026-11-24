@@ -74,6 +74,27 @@ function rollValue(stat, match) {
 const RARITY_OPTION = { '稀有': 'rare', '传奇': 'unique', '魔法': 'magic', '普通': 'normal' };
 
 /**
+ * 插槽数 → equipment_filters.rune_sockets（国服词典「增幅器插槽」）。
+ * 字段与写法经用户提供的真实国服 URL 确认：{min: N}，组级 disabled:false。
+ * 插槽行是空格分隔的字母（如 "S S"、"J J J J J J"），按空白切分计数。
+ * 买家视角取 min：找插槽数不低于此装备的挂单。无插槽行/解析不出时不加过滤。
+ * 注意与 total_augment_sockets（含插槽绑定增幅器）区分：这里只数文本可见插槽，
+ * 与参考 URL 一致用 rune_sockets。
+ */
+function addSocketFilters(query, item, opts = {}) {
+  if (opts.sockets === false) return undefined;
+  const raw = item.sockets;
+  if (typeof raw !== 'string' || !raw.trim()) return undefined;
+  const count = raw.trim().split(/\s+/).filter(Boolean).length;
+  if (!count) return undefined;
+  const equipment = query.filters.equipment_filters ??= { disabled: false, filters: {} };
+  equipment.disabled = false;
+  const override = opts.socketsMin;
+  equipment.filters.rune_sockets = { min: override != null ? Math.floor(override) : count };
+  return count;
+}
+
+/**
  * @param parsedItem  parseItemText 产物
  * @param matched     matchItem 产物 [{mod, stat, match}]
  * @param opts        { tierMax, includeUntiered, league, pseudoEnabled, pseudoRangePercent, ... }
@@ -174,6 +195,19 @@ function buildQuery(parsedItem, matched, opts = {}) {
     query.filters.type_filters.filters.ilvl = { min: parsedItem.itemLevel };
   }
 
+  // 品质筛选：超过常规 20% 上限（>20%，即 ≥21%）才写入 type_filters.quality.min。
+  // 可修改装备都能磨到 20%，≤20 的品质过滤无意义；>20 是稀缺卖点，
+  // 按实际品质找不低于它的挂单（买家视角，与插槽/DPS 同口径）。
+  // 字段位置经用户提供的真实国服 URL 确认：type_filters（不是 equipment_filters），
+  // 写法 {min: N}。腐化装备品质不可再改，>20 同样按实际值过滤。
+  if (parsedItem.quality != null && parsedItem.quality > 20 && opts.quality !== false) {
+    query.filters.type_filters ??= { filters: {} };
+    const override = opts.qualityMin;
+    query.filters.type_filters.filters.quality = {
+      min: override != null ? Math.floor(override) : parsedItem.quality,
+    };
+  }
+
   // 传奇：腐化 + 鉴定状态筛选（misc_filters）。按「是否已鉴定」分两种情况：
   //   已鉴定（无「未鉴定」）：identified=true；corrupted 跟随「被腐化」关键词
   //     （有→true，无→false）。被腐化的装备一定已鉴定，故 identified 恒 true。
@@ -197,8 +231,11 @@ function buildQuery(parsedItem, matched, opts = {}) {
   const weaponDps = addDpsFilters(query, parsedItem, opts);
   const defences = addDefenceFilters(query, parsedItem, opts, matched);
   const mapMods = addMapFilters(query, parsedItem, opts);
+  // 插槽数：有插槽行就写 rune_sockets.min（与 DPS/防御同组 equipment_filters，
+  // 用 ??= 合并，不会覆盖 addDpsFilters 已写入的字段）
+  const socketCount = addSocketFilters(query, parsedItem, opts);
 
-  return { query, league, weaponDps, defences, mapMods, pseudo: pseudoResult };
+  return { query, league, weaponDps, defences, mapMods, socketCount, pseudo: pseudoResult };
 }
 
 /**

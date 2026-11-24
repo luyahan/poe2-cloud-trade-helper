@@ -214,7 +214,11 @@ function addDpsFilters(query, item, opts = {}) {
     const requested = opts[`${key}Min`] ?? opts.dpsMin;
     if (filters[key] && requested != null) filters[key].min = Math.floor(requested);
   }
-  query.filters.equipment_filters = { disabled: false, filters };
+  // ??= 合并而非整组覆盖：equipment_filters 还可能承载插槽/防御等字段，
+  // 各 add*Filters 的调用顺序不应影响彼此结果。
+  const equipment = query.filters.equipment_filters ??= { disabled: false, filters: {} };
+  equipment.disabled = false;
+  Object.assign(equipment.filters, filters);
   return dps;
 }
 
