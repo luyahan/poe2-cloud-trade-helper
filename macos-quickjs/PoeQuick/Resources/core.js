@@ -686,6 +686,10 @@ var require_match_stats = __commonJS({
       Explicit: ["explicit"]
     };
     var TYPE_SUFFIX = /\s*\((rune|implicit|enchant|crafted|fractured|desecrated|augmented)\)\s*$/i;
+    var INVERT_STAT_IDS = /* @__PURE__ */ new Set(["stat_2284588585", "stat_2905515354"]);
+    function isInvertedStat(id) {
+      return INVERT_STAT_IDS.has(String(id).split(".").pop());
+    }
     var SIGNED_RANGE = /\+?-?\d+(?:\.\d+)?\s*(?:\([+-]?\d+(?:\.\d+)?\s*[-–—]\s*[+-]?\d+(?:\.\d+)?\))?/g;
     function normalizeTemplate(text) {
       return text.replace(TYPE_SUFFIX, "").replace(SIGNED_RANGE, "#").replace(/\s+/g, "").trim();
@@ -763,7 +767,7 @@ var require_match_stats = __commonJS({
             group: gid,
             confidence: exact ? "exact" : "normalized",
             ambiguous: hits.length > 1,
-            tradeInvert: chosen.id === "explicit.stat_2284588585" || void 0,
+            tradeInvert: isInvertedStat(chosen.id) || void 0,
             valueRollIndex: valueIndex
           };
         }
@@ -1300,6 +1304,7 @@ var require_query = __commonJS({
         pseudoRangePercent = 0
       } = opts;
       const filters = [];
+      const notFilters = [];
       const candidates = [];
       const seen = /* @__PURE__ */ new Set();
       for (const { mod, stat, match } of matched) {
@@ -1308,6 +1313,13 @@ var require_query = __commonJS({
         const dedupKey = `${match.id}:${JSON.stringify(value) || ""}`;
         if (seen.has(dedupKey)) continue;
         seen.add(dedupKey);
+        if (match.tradeInvert) {
+          const r = stat.rolls?.[match.valueRollIndex ?? 0];
+          if (r && r.value === 0) {
+            notFilters.push({ id: match.id });
+            continue;
+          }
+        }
         let disabled;
         if (parsedItem.category === "\u5F15\u8DEF\u77F3") {
           disabled = true;
@@ -1335,6 +1347,7 @@ var require_query = __commonJS({
         stats: [{ type: "and", filters }],
         filters: {}
       };
+      if (notFilters.length) query.stats.push({ type: "not", filters: notFilters });
       const pseudoResult = pseudoEnabled && parsedItem.category !== "\u5F15\u8DEF\u77F3" ? applyPseudoMerge(query, candidates, { pseudoRangePercent }) : { suggestions: [], applied: [] };
       if (parsedItem.rarity === "\u4F20\u5947" && parsedItem.name) {
         query.name = parsedItem.name;

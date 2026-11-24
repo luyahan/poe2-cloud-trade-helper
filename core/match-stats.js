@@ -29,6 +29,15 @@ const TYPE_GROUP_PRIORITY = {
 // 词缀类型后缀标记（词典文本不含这些，匹配前剥离）
 const TYPE_SUFFIX = /\s*\((rune|implicit|enchant|crafted|fractured|desecrated|augmented)\)\s*$/i;
 
+// 越低越好的词缀：搜索取上限（max）而非下限。按 stat id 数字段判定，
+// 跨 explicit/rune 等分组稳定（国服词典文本顺序不统一，文本正则不可靠）。
+//   stat_2284588585 冷却时间（…秒只能使用一次）
+//   stat_2905515354 击中被格挡时承受伤害 #%（斯瓦林核心卖点，0%=完全免伤）
+const INVERT_STAT_IDS = new Set(['stat_2284588585', 'stat_2905515354']);
+function isInvertedStat(id) {
+  return INVERT_STAT_IDS.has(String(id).split('.').pop());
+}
+
 // 归一化：剥类型后缀 → 数值(含前导+号与正负区间)→# → 压缩所有空白 → 去首尾。
 // 关键：「+51 命中值」对应词典的「# 命中值」；「+9 (-10-+10)」也必须只留下一个 #。
 const SIGNED_RANGE = /\+?-?\d+(?:\.\d+)?\s*(?:\([+-]?\d+(?:\.\d+)?\s*[-–—]\s*[+-]?\d+(?:\.\d+)?\))?/g;
@@ -141,7 +150,7 @@ function matchStatLine(stat, groups, compiled) {
         group: gid,
         confidence: exact ? 'exact' : 'normalized',
         ambiguous: hits.length > 1,
-        tradeInvert: chosen.id === 'explicit.stat_2284588585' || undefined,
+        tradeInvert: isInvertedStat(chosen.id) || undefined,
         valueRollIndex: valueIndex,
       };
     }

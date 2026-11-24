@@ -110,6 +110,11 @@ function buildQuery(parsedItem, matched, opts = {}) {
   } = opts;
 
   const filters = [];
+  // 「非」组：越低越好词缀 roll 到 0 时，语义是「没有这个词缀」——
+  // 如斯瓦林承受伤害 0% = 格挡完全免伤，必须排除带该词缀的挂单，
+  // 而不是 max:0（那只会命中同样 0% 的，漏掉根本没有此词缀的更好挂单）。
+  // not 组是国服市集合法分组（油猴版 groupType 枚举 and/count/not/weight 确认）。
+  const notFilters = [];
   // pseudo 合并的候选：与 filters 一一对应（同一对象引用），
   // 这样建议命中来源后可以直接回贴 disabled，不必二次查表。
   const candidates = [];
@@ -121,6 +126,15 @@ function buildQuery(parsedItem, matched, opts = {}) {
     const dedupKey = `${match.id}:${JSON.stringify(value) || ''}`;
     if (seen.has(dedupKey)) continue;
     seen.add(dedupKey);
+
+    // 反转词缀实际 roll 为 0 → 进 not 组（无此词缀），不进 and 组、不参与 pseudo
+    if (match.tradeInvert) {
+      const r = stat.rolls?.[match.valueRollIndex ?? 0];
+      if (r && r.value === 0) {
+        notFilters.push({ id: match.id });
+        continue;
+      }
+    }
 
     let disabled;
     // 引路石：买家只关心 map_filters 面板字段，词缀默认全部禁用，避免 AND 过严搜不到。
@@ -156,6 +170,7 @@ function buildQuery(parsedItem, matched, opts = {}) {
     stats: [{ type: 'and', filters }],
     filters: {},
   };
+  if (notFilters.length) query.stats.push({ type: 'not', filters: notFilters });
 
   // ---- pseudo 合并：写入第二个 and 组 ----
   // 单独成组而非塞进第一组：第一组是「每条精确词缀都要满足」，
