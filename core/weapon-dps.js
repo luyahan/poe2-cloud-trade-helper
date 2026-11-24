@@ -169,6 +169,11 @@ function calcWeaponDps(item) {
     ? rollDps([...(physicalAverage ? [physicalAverage] : []), ...elemental], attackSpeed)
     : undefined;
 
+  // 市集「伤害」字段口径：物理 + 火/冰/电面板均值之和（与截图基准一致）。
+  // 物理取 q20 反推均值（可修改装备磨到 20% 后的面板），元素取面板均值。
+  const damageAverage = (physicalAverage ? physicalAverage.value : 0) +
+    Object.values(elements).reduce((total, entry) => total + entry.value, 0);
+
   const round = (dps) => (dps ? Math.round(dps.value) : undefined);
   return {
     attackSpeed,
@@ -177,7 +182,9 @@ function calcWeaponDps(item) {
     pDPS,
     eDPS,
     totalDPS,
+    damageAverage,
     display: {
+      damage: Math.round(damageAverage),
       pDPS: round(pDPS),
       eDPS: round(eDPS),
       totalDPS: round(totalDPS),
@@ -199,6 +206,11 @@ function searchMin(dps, rarity, rangePercent = 2) {
   return Math.max(theoreticalMin, Math.floor(requested));
 }
 
+/** 市集面板字段保留两位小数（截断而非四舍五入，避免下限虚高排除同 roll 挂单） */
+function trunc2(value) {
+  return Math.floor((value + Number.EPSILON) * 100) / 100;
+}
+
 function addDpsFilters(query, item, opts = {}) {
   if (opts.dps === false) return undefined;
   const dps = calcWeaponDps(item);
@@ -213,6 +225,20 @@ function addDpsFilters(query, item, opts = {}) {
   for (const key of ['dps', 'pdps', 'edps']) {
     const requested = opts[`${key}Min`] ?? opts.dpsMin;
     if (filters[key] && requested != null) filters[key].min = Math.floor(requested);
+  }
+
+  // 原始面板字段（damage/aps/crit）：与市集装备过滤器截图同口径，精确值写入、
+  // 不做百分比下调（截图基准：伤害 331 / 攻速 1.91 / 暴击 5）。
+  // damage 取 q20 物理 + 元素面板均值和；aps/crit 直接取面板值。
+  if (opts.panel !== false) {
+    if (dps.damageAverage > 0) filters.damage = { min: trunc2(dps.damageAverage) };
+    if (dps.attackSpeed.value > 0) filters.aps = { min: trunc2(dps.attackSpeed.value) };
+    const crit = item.properties?.critChance;
+    if (Number.isFinite(crit) && crit > 0) filters.crit = { min: trunc2(crit) };
+    for (const key of ['damage', 'aps', 'crit']) {
+      const requested = opts[`${key}Min`];
+      if (filters[key] && requested != null) filters[key].min = trunc2(requested);
+    }
   }
   // ??= 合并而非整组覆盖：equipment_filters 还可能承载插槽/防御等字段，
   // 各 add*Filters 的调用顺序不应影响彼此结果。

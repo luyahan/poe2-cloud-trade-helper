@@ -188,6 +188,7 @@ var require_weapon_dps = __commonJS({
       const elemental = Object.values(elements);
       const eDPS = hasElementalDamage ? rollDps(elemental, attackSpeed) : void 0;
       const totalDPS = hasElementalDamage ? rollDps([...physicalAverage ? [physicalAverage] : [], ...elemental], attackSpeed) : void 0;
+      const damageAverage = (physicalAverage ? physicalAverage.value : 0) + Object.values(elements).reduce((total, entry) => total + entry.value, 0);
       const round = (dps) => dps ? Math.round(dps.value) : void 0;
       return {
         attackSpeed,
@@ -196,7 +197,9 @@ var require_weapon_dps = __commonJS({
         pDPS,
         eDPS,
         totalDPS,
+        damageAverage,
         display: {
+          damage: Math.round(damageAverage),
           pDPS: round(pDPS),
           eDPS: round(eDPS),
           totalDPS: round(totalDPS),
@@ -213,6 +216,9 @@ var require_weapon_dps = __commonJS({
       const requested = rarity === "\u4F20\u5947" ? dps.value - (dps.max - dps.min) * percent : dps.value * (1 - percent);
       return Math.max(theoreticalMin, Math.floor(requested));
     }
+    function trunc2(value) {
+      return Math.floor((value + Number.EPSILON) * 100) / 100;
+    }
     function addDpsFilters(query, item, opts = {}) {
       var _a;
       if (opts.dps === false) return void 0;
@@ -226,6 +232,16 @@ var require_weapon_dps = __commonJS({
       for (const key of ["dps", "pdps", "edps"]) {
         const requested = opts[`${key}Min`] ?? opts.dpsMin;
         if (filters[key] && requested != null) filters[key].min = Math.floor(requested);
+      }
+      if (opts.panel !== false) {
+        if (dps.damageAverage > 0) filters.damage = { min: trunc2(dps.damageAverage) };
+        if (dps.attackSpeed.value > 0) filters.aps = { min: trunc2(dps.attackSpeed.value) };
+        const crit = item.properties?.critChance;
+        if (Number.isFinite(crit) && crit > 0) filters.crit = { min: trunc2(crit) };
+        for (const key of ["damage", "aps", "crit"]) {
+          const requested = opts[`${key}Min`];
+          if (filters[key] && requested != null) filters[key].min = trunc2(requested);
+        }
       }
       const equipment = (_a = query.filters).equipment_filters ?? (_a.equipment_filters = { disabled: false, filters: {} });
       equipment.disabled = false;
@@ -388,7 +404,7 @@ var require_parse_item = __commonJS({
   "../core/parse-item.js"(exports, module) {
     var { calcWeaponDps } = require_weapon_dps();
     var { calcDefences } = require_defences();
-    var MOD_LINE = /^\{\s*(?<special>亵渎的|打造的|已破裂|已工艺)?\s*(?<gen>前缀属性|后缀属性|前缀词缀|后缀词缀|固定词缀|基底属性|传奇属性|瓦尔传奇词缀)\s*(?:"(?<name>[^"]*)"|“(?<nameCN>[^”]*)”)?\s*(?:\(等阶：(?<tier>\d+)\))?\s*(?:\(阶级：(?<rank>\d+)\))?\s*(?:—\s*(?<tags>[^}]*))?\}$/;
+    var MOD_LINE = /^\{\s*(?<special>亵渎的|打造的|已破裂|已工艺)?\s*(?<gen>前缀属性|后缀属性|前缀词缀|后缀词缀|固定词缀|基底属性|传奇属性|瓦尔传奇词缀|腐化强化)\s*(?:"(?<name>[^"]*)"|“(?<nameCN>[^”]*)”)?\s*(?:\(等阶：(?<tier>\d+)\))?\s*(?:\(阶级：(?<rank>\d+)\))?\s*(?:—\s*(?<tags>[^}]*))?\}$/;
     var GRANT_SKILL_LINE = /^获得技能:\s*(.+)$/;
     var NUM_RANGE = /(?<sign>[+-]?)(?<value>\d+(?:\.\d+)?)\s*(?:\((?<min>[+-]?\d+(?:\.\d+)?)\s*[-–—]\s*(?<max>[+-]?\d+(?:\.\d+)?)\))?/g;
     var SECTION_SEP = /^-{4,}$/;
@@ -405,11 +421,13 @@ var require_parse_item = __commonJS({
       { pattern: /^格挡(?:几率|率)?:\s*([\d.]+)%/, target: "block" },
       { pattern: /^精魂:\s*(\d+)/, target: "spirit" },
       { pattern: /^插槽:\s*(.+)$/, field: "sockets", text: true },
-      // 引路石面板字段（map_filters）
+      // 引路石面板字段（map_filters）。字段名以国服 filters 词典官方 text 为准：
+      // map_magic_monsters=「怪物效能」、map_rare_monsters=「怪物稀有度」，
+      // 旧文本变体（魔法怪物/稀有怪物数量）一并保留。
       { pattern: /^(?:引路石)?等阶:\s*(\d+)/, target: "mapTier" },
       { pattern: /^怪物群(?:大小|规模):\s*\+?([\d.]+)%/, target: "mapPackSize" },
-      { pattern: /^魔法怪物(?:数量)?:\s*\+?([\d.]+)%/, target: "mapMagicMonsters" },
-      { pattern: /^稀有怪物(?:数量)?:\s*\+?([\d.]+)%/, target: "mapRareMonsters" },
+      { pattern: /^(?:怪物效能|魔法怪物(?:数量)?):\s*\+?([\d.]+)%/, target: "mapMagicMonsters" },
+      { pattern: /^(?:怪物稀有度|稀有怪物(?:数量)?):\s*\+?([\d.]+)%/, target: "mapRareMonsters" },
       { pattern: /^物品稀有度:\s*\+?([\d.]+)%/, target: "mapIir" },
       { pattern: /^(?:可用)?(?:复活|挑战)次数:\s*(\d+)/, target: "mapRevives" },
       { pattern: /^(?:引路石)?掉落几率:\s*\+?([\d.]+)%/, target: "mapBonus" },
@@ -434,10 +452,12 @@ var require_parse_item = __commonJS({
       if (/^\{/.test(text)) return false;
       if (/\((rune|implicit|enchant|crafted|fractured|desecrated|augmented)\)/.test(text)) return false;
       if (/^获得技能:/.test(text)) return false;
-      if (/^被腐化/.test(text)) return false;
+      if (CORRUPTED_LINE.test(text)) return false;
       if (/^未鉴定/.test(text)) return false;
+      if (/^放置到一个天赋树/.test(text)) return false;
+      if (/^可在地图装置中使用/.test(text)) return false;
       if (/\d/.test(text)) return false;
-      return /[，。]$/.test(text) || /^[一-龥，。、；：""''（）\s]+$/.test(text);
+      return /[，。]$/.test(text) || /…$/.test(text) || /^[一-龥，。、；：""''（）…\s]+$/.test(text);
     }
     function extractRolls(text) {
       const rolls = [];
@@ -459,9 +479,10 @@ var require_parse_item = __commonJS({
       if (better === "negative") g = 1 - g;
       return Math.round(g * 1e3) / 1e3;
     }
+    var CORRUPTED_LINE = /^(?:被腐化|双重腐化)/;
     function parseHeader(lines, item) {
       for (const line of lines) {
-        if (/^被腐化/.test(line)) {
+        if (CORRUPTED_LINE.test(line)) {
           item.corrupted = true;
           continue;
         }
@@ -500,6 +521,14 @@ var require_parse_item = __commonJS({
         item.baseName = nameLines[0];
       }
     }
+    var WAYSTONE_BASE = /^引路石\s*[（(]\s*(?:等阶\s*)?(\d+)\s*(?:阶)?\s*[)）]$/;
+    function normalizeWaystoneBase(item) {
+      if (item.category !== "\u5F15\u8DEF\u77F3" || !item.baseName) return;
+      const m = item.baseName.match(WAYSTONE_BASE);
+      if (!m) return;
+      if (item.properties.mapTier == null) item.properties.mapTier = Number(m[1]);
+      item.baseName = "\u5F15\u8DEF\u77F3";
+    }
     var SPECIAL_MOD_TYPE = { \u4EB5\u6E0E\u7684: "Desecrated", \u6253\u9020\u7684: "Crafted", \u5DF2\u7834\u88C2: "Fractured" };
     var GENERATION = {
       \u524D\u7F00\u5C5E\u6027: "prefix",
@@ -509,6 +538,8 @@ var require_parse_item = __commonJS({
     };
     function modFromInfoLine(groups) {
       return {
+        // 腐化强化（双重腐化珠宝的附加属性）按 Explicit 处理：
+        // 市集在售装备按外延词缀索引，与亵渎/打造同策略。
         type: SPECIAL_MOD_TYPE[groups.special] || (groups.gen === "\u57FA\u5E95\u5C5E\u6027" ? "Implicit" : "Explicit"),
         generation: GENERATION[groups.gen] || "implicit",
         name: groups.name || groups.nameCN || void 0,
@@ -565,7 +596,9 @@ var require_parse_item = __commonJS({
           continue;
         }
         if (/^引路石掉落/.test(trimmed)) continue;
-        if (/^被腐化/.test(trimmed)) {
+        if (/^可在地图装置中使用/.test(trimmed)) continue;
+        if (/^放置到一个天赋树/.test(trimmed)) continue;
+        if (CORRUPTED_LINE.test(trimmed)) {
           item.corrupted = true;
           continue;
         }
@@ -616,6 +649,7 @@ var require_parse_item = __commonJS({
       };
       parseHeader(lines, item);
       parseNames(lines, item);
+      normalizeWaystoneBase(item);
       parseMods(lines, item);
       for (const mod of item.mods) {
         mod.stats = mod.statLines.map((sl) => {
@@ -736,8 +770,46 @@ var require_match_stats = __commonJS({
       }
       return null;
     }
+    function matchWholeMod(mod, groups, compiled) {
+      const stats = mod.stats || [];
+      if (stats.length < 2) return null;
+      const joined = stats.map((s) => s.text).join("\n");
+      const key = normalizeTemplate(joined);
+      for (const gid of groups) {
+        const map = compiled[gid];
+        if (!map) continue;
+        const hits = map.get(key);
+        if (hits && hits.length) {
+          const chosen = hits[0];
+          const valueIndex = dictValueRollIndex(chosen.text);
+          const allRolls = stats.flatMap((s) => s.rolls || []);
+          const stat = {
+            text: joined,
+            template: stats.map((s) => s.template).join(" "),
+            rolls: allRolls
+          };
+          return {
+            stat,
+            match: {
+              id: chosen.id,
+              text: chosen.text,
+              group: gid,
+              confidence: "normalized",
+              ambiguous: hits.length > 1,
+              valueRollIndex: valueIndex
+            }
+          };
+        }
+      }
+      return null;
+    }
     function matchMod(mod, compiled) {
       const groups = TYPE_GROUP_PRIORITY[mod.type] || ["explicit"];
+      const whole = matchWholeMod(mod, groups, compiled);
+      if (whole) {
+        if (mod.stats?.[0]) mod.stats[0].tradeId = whole.match.id;
+        return [whole];
+      }
       return (mod.stats || []).map((rawStat) => {
         const tags = Array.isArray(mod.tags) ? mod.tags : (mod.tags || "").split(/[,，]/).map((tag) => tag.trim());
         const stat = tags.includes("\u62A4\u7532") && /^护甲提高\s/.test(rawStat.text) ? { ...rawStat, text: `${rawStat.text} (\u533A\u57DF)`, template: `${rawStat.template} (\u533A\u57DF)` } : rawStat;
@@ -765,8 +837,8 @@ var require_map_mods = __commonJS({
     var MAP_FIELDS = [
       { property: "mapTier", filter: "map_tier", label: "\u5F15\u8DEF\u77F3\u7B49\u9636", integer: true },
       { property: "mapPackSize", filter: "map_packsize", label: "\u602A\u7269\u7FA4\u89C4\u6A21", integer: false },
-      { property: "mapMagicMonsters", filter: "map_magic_monsters", label: "\u9B54\u6CD5\u602A\u7269", integer: false },
-      { property: "mapRareMonsters", filter: "map_rare_monsters", label: "\u7A00\u6709\u602A\u7269", integer: false },
+      { property: "mapMagicMonsters", filter: "map_magic_monsters", label: "\u602A\u7269\u6548\u80FD", integer: false },
+      { property: "mapRareMonsters", filter: "map_rare_monsters", label: "\u602A\u7269\u7A00\u6709\u5EA6", integer: false },
       { property: "mapIir", filter: "map_iir", label: "\u7269\u54C1\u7A00\u6709\u5EA6", integer: false },
       { property: "mapRevives", filter: "map_revives", label: "\u53EF\u7528\u590D\u6D3B\u6B21\u6570", integer: true },
       { property: "mapBonus", filter: "map_bonus", label: "\u5F15\u8DEF\u77F3\u6389\u843D\u51E0\u7387", integer: false },
@@ -776,8 +848,8 @@ var require_map_mods = __commonJS({
     var MOD_TO_FIELD = [
       { property: "mapIir", pattern: /(?:区域内发现物品的稀有度|物品稀有度)(?:提高|增加)\s*\+?([\d.]+)/ },
       { property: "mapPackSize", pattern: /怪物群(?:规模|大小)(?:提高|增加)\s*\+?([\d.]+)/ },
-      { property: "mapMagicMonsters", pattern: /魔法怪物(?:数量)?(?:提高|增加)\s*\+?([\d.]+)/ },
-      { property: "mapRareMonsters", pattern: /稀有怪物(?:数量)?(?:提高|增加)\s*\+?([\d.]+)/ },
+      { property: "mapMagicMonsters", pattern: /(?:怪物效能|魔法怪物(?:数量)?)(?:提高|增加)\s*\+?([\d.]+)/ },
+      { property: "mapRareMonsters", pattern: /(?:怪物稀有度|稀有怪物(?:数量)?)(?:提高|增加)\s*\+?([\d.]+)/ },
       { property: "mapBonus", pattern: /引路石掉落几率(?:提高|增加)\s*\+?([\d.]+)/ },
       { property: "mapGold", pattern: /金币(?:提高|增加)\s*\+?([\d.]+)/ },
       { property: "mapExperience", pattern: /经验(?:提高|增加)\s*\+?([\d.]+)/ }
@@ -1166,6 +1238,8 @@ var require_query = __commonJS({
       "\u9879\u94FE": "accessory.amulet",
       "\u8170\u5E26": "accessory.belt",
       "\u6212\u6307": "accessory.ring",
+      "\u73E0\u5B9D": "jewel",
+      // 国服顶层 option「任何珠宝」，无子类
       "\u751F\u547D\u836F\u5242": "flask.life",
       "\u9B54\u529B\u836F\u5242": "flask.mana",
       "\u5492\u7B26": "flask.charm",
@@ -1288,12 +1362,13 @@ var require_query = __commonJS({
           min: override != null ? Math.floor(override) : parsedItem.quality
         };
       }
-      if (parsedItem.rarity === "\u4F20\u5947") {
+      if (parsedItem.rarity === "\u4F20\u5947" || parsedItem.category === "\u5F15\u8DEF\u77F3") {
         const unidentified = !!parsedItem.unidentified;
+        const corrupted = !!parsedItem.corrupted;
         query.filters.misc_filters = {
           disabled: false,
           filters: {
-            corrupted: { option: unidentified ? null : parsedItem.corrupted ? "true" : "false" },
+            corrupted: { option: corrupted ? "true" : unidentified ? null : "false" },
             identified: { option: unidentified ? "false" : "true" }
           }
         };

@@ -10,7 +10,7 @@ core/            @poe2/core —— 纯业务逻辑，零平台依赖（Node / Qu
   match-stats.js   词缀模板 → 真实 trade id 匹配（含词典编译/序列化）
   query.js         匹配结果 → trade2 查询 JSON
   pseudo.js        同族词缀合并（总抗/总属性/总生命，来源保留只禁用）
-  weapon-dps.js    q20 武器面板 DPS
+  weapon-dps.js    q20 武器面板 DPS + 伤害/攻速/暴击面板过滤
   defences.js      装备防御面板 → equipment_filters
   map-mods.js      引路石面板 → map_filters
   item-text.js     剪贴板文本特征识别
@@ -96,9 +96,9 @@ electron/src/ui  →  electron/src/host  →  core/  ←  macos-quickjs（经 co
 
 ```bash
 npm run prepare-data     # 拉最新国服词典 + 当前联赛 → data/
-npm test                 # 82 项：纯业务逻辑 + 分层边界守卫（不启动 Electron）
+npm test                 # 107 项：纯业务逻辑 + 分层边界守卫（不启动 Electron）
 npm run test:host        # 4 项：Electron 宿主层（热键旁听、gzip 编码）
-npm run test:all         # 上面两套一起跑（86 项）
+npm run test:all         # 上面两套一起跑（111 项）
 npm run check            # 全部模块语法校验
 npm run build:quickjs    # 构建 macOS 原生壳
 
@@ -110,7 +110,7 @@ npm run dist             # 打包 .app（check → 测试 → prepare-data → �
 ## 测试为什么分两处
 
 - **`test/`（仓库根）** 只测 `core/`，完全不碰 Electron。`require('electron')` 在这里是禁忌，
-  所以这 82 项在任何有 Node 的环境都能跑（CI 不需要图形环境）。
+  所以这 107 项在任何有 Node 的环境都能跑（CI 不需要图形环境）。
 - **`electron/test/`** 只测进入 Electron 之后才存在的能力：uiohook 热键旁听、node:zlib 编码。
   这些天然依赖宿主，放根目录会让 core 测试失去「纯 Node 可跑」的性质。
 

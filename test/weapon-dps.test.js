@@ -1,5 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { readFileSync } = require('node:fs');
+const { join } = require('node:path');
 const { parseItemText } = require('@poe2/core/parse-item');
 const { calcWeaponDps, searchMin } = require('@poe2/core/weapon-dps');
 const { buildQuery } = require('@poe2/core/query');
@@ -69,7 +71,10 @@ test('查询：混合武器生成总/物理/元素三种独立阈值，并启用
   const { query, weaponDps } = buildQuery(item, [], {});
   assert.deepEqual(query.filters.equipment_filters, {
     disabled: false,
-    filters: { dps: { min: 420 }, pdps: { min: 317 }, edps: { min: 105 } },
+    filters: {
+      dps: { min: 420 }, pdps: { min: 317 }, edps: { min: 105 },
+      damage: { min: 286 }, aps: { min: 1.5 },
+    },
   });
   assert.equal(weaponDps.display.totalDPS, 429);
   assert.equal(weaponDps.display.eDPS, 105);
@@ -91,7 +96,10 @@ test('查询：纯物理武器只生成 pdps，不生成 dps/edps', () => {
   assert.equal(weaponDps.display.pDPS, 270);
   assert.equal(weaponDps.totalDPS, undefined);
   // 固定 roll 的理论最低值也是 270，因此 2% 下限会被钳制为 270。
-  assert.deepEqual(query.filters.equipment_filters, { disabled: false, filters: { pdps: { min: 270 } } });
+  assert.deepEqual(query.filters.equipment_filters, {
+    disabled: false,
+    filters: { pdps: { min: 270 }, damage: { min: 180 }, aps: { min: 1.5 } },
+  });
 });
 
 test('查询：手动 dpsMin 只覆盖阈值，不覆盖计算值', () => {
@@ -108,6 +116,7 @@ test('查询：pdpsMin/edpsMin 可分别覆盖对应阈值', () => {
   const { query } = buildQuery(item, [], { pdpsMin: 300, edpsMin: 90 });
   assert.deepEqual(query.filters.equipment_filters.filters, {
     dps: { min: 420 }, pdps: { min: 300 }, edps: { min: 90 },
+    damage: { min: 286 }, aps: { min: 1.5 },
   });
 });
 
@@ -158,6 +167,67 @@ test('查询：关闭 DPS 筛选仍保留计算值供托盘显示', () => {
   assert.equal(query.filters.equipment_filters, undefined);
   assert.equal(weaponDps, undefined);
   assert.equal(item.derived.weaponDps.display.totalDPS, 429);
+});
+
+// ---- 截图基准回归（2026-11-24 用户提供市集装备过滤器截图）----
+// 伤害 331 / 攻速 1.91 / 暴击 5 / 总DPS 631.68 / 物理DPS 153.63 / 元素DPS 478.05。
+// 截图 DPS 用面板显示攻速反推（1.91 实为 1.908 截断显示），故与全精度值差 ~0.1%；
+// 我们的 dps/pdps/edps 下限（2% 下调）比截图更宽，不会排除截图能搜到的挂单。
+const hammerSample = readFileSync(join(__dirname, '../data/sample-item.txt'), 'utf8');
+
+test('截图基准：样本锤面板字段 damage=331 / aps=1.91 / crit=5 精确写入', () => {
+  const item = parseItemText(hammerSample);
+  const { query, weaponDps } = buildQuery(item, [], {});
+  const eq = query.filters.equipment_filters.filters;
+  // 伤害 = q20 物理均值 80.5 + 火 115.5 + 冰 35 + 电 100
+  assert.equal(eq.damage.min, 331);
+  assert.equal(eq.aps.min, 1.91);
+  assert.equal(eq.crit.min, 5);
+  assert.equal(weaponDps.display.damage, 331);
+  assert.equal(weaponDps.damageAverage, 331);
+});
+
+test('截图基准：DPS 全精度值与截图两位小数口径一致（±0.2%）', () => {
+  const dps = calcWeaponDps(parseItemText(hammerSample));
+  // 截图：631.68 / 153.63 / 478.05（面板显示攻速口径）
+  assert.ok(Math.abs(dps.totalDPS.value - 631.68) / 631.68 < 0.002);
+  assert.ok(Math.abs(dps.pDPS.value - 153.63) / 153.63 < 0.002);
+  assert.ok(Math.abs(dps.eDPS.value - 478.05) / 478.05 < 0.002);
+  // 2% 下调后的搜索下限必须不高于截图精确值（买家视角只宽不严）
+  const { query } = buildQuery(parseItemText(hammerSample), [], {});
+  const eq = query.filters.equipment_filters.filters;
+  assert.ok(eq.dps.min <= 631.68);
+  assert.ok(eq.pdps.min <= 153.63);
+  assert.ok(eq.edps.min <= 478.05);
+});
+
+test('面板字段：damageMin/apsMin/critMin 覆盖，panel=false 整体关闭', () => {
+  const item = parseItemText(hammerSample);
+  const overridden = buildQuery(item, [], { damageMin: 300, apsMin: 1.8, critMin: 4 });
+  const eq = overridden.query.filters.equipment_filters.filters;
+  assert.deepEqual([eq.damage, eq.aps, eq.crit], [{ min: 300 }, { min: 1.8 }, { min: 4 }]);
+  const off = buildQuery(item, [], { panel: false });
+  const offEq = off.query.filters.equipment_filters.filters;
+  assert.equal(offEq.damage, undefined);
+  assert.equal(offEq.aps, undefined);
+  assert.equal(offEq.crit, undefined);
+  assert.ok(offEq.dps, 'panel=false 只关面板字段，DPS 下限保留');
+});
+
+test('面板字段：无暴击行不虚构 crit；纯物理武器不虚构 aps 以外的元素条件', () => {
+  const item = parseItemText(`物品类别: 单手锤
+稀有度: 稀有
+测试武器
+钉头锤
+--------
+物理伤害: 150-150
+每秒攻击次数: 1.50`);
+  const { query } = buildQuery(item, [], {});
+  const eq = query.filters.equipment_filters.filters;
+  assert.equal(eq.crit, undefined);
+  assert.deepEqual(eq.damage, { min: 180 });
+  assert.deepEqual(eq.aps, { min: 1.5 });
+  assert.equal(eq.edps, undefined);
 });
 
 test('解析：元素分类只含火/冰/电，混沌不参与总 DPS', () => {
