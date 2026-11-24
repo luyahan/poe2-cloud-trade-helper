@@ -751,61 +751,58 @@ var require_match_stats = __commonJS({
       }
       return byGroup;
     }
-    function matchStatLine(stat, groups, compiled) {
-      const key = normalizeTemplate(stat.text);
+    function findInGroups(key, groups, compiled, patterns = true) {
       for (const gid of groups) {
         const map = compiled[gid];
         if (!map) continue;
-        const hits = map.get(key) || map.get("__patterns__")?.get(key);
-        if (hits && hits.length) {
-          const exact = hits.find((h) => h.text === stat.template);
-          const chosen = exact || hits[0];
-          const valueIndex = dictValueRollIndex(chosen.text);
-          return {
-            id: chosen.id,
-            text: chosen.text,
-            group: gid,
-            confidence: exact ? "exact" : "normalized",
-            ambiguous: hits.length > 1,
-            tradeInvert: isInvertedStat(chosen.id) || void 0,
-            valueRollIndex: valueIndex
-          };
-        }
+        const hits = map.get(key) || (patterns ? map.get("__patterns__")?.get(key) : null);
+        if (hits && hits.length) return { gid, hits };
       }
       return null;
+    }
+    function matchStatLine(stat, groups, compiled) {
+      const key = normalizeTemplate(stat.text);
+      const found = findInGroups(key, groups, compiled);
+      if (!found) return null;
+      const { gid, hits } = found;
+      const exact = hits.find((h) => h.text === stat.template);
+      const chosen = exact || hits[0];
+      return {
+        id: chosen.id,
+        text: chosen.text,
+        group: gid,
+        confidence: exact ? "exact" : "normalized",
+        ambiguous: hits.length > 1,
+        tradeInvert: isInvertedStat(chosen.id) || void 0,
+        valueRollIndex: dictValueRollIndex(chosen.text)
+      };
     }
     function matchWholeMod(mod, groups, compiled) {
       const stats = mod.stats || [];
       if (stats.length < 2) return null;
       const joined = stats.map((s) => s.text).join("\n");
       const key = normalizeTemplate(joined);
-      for (const gid of groups) {
-        const map = compiled[gid];
-        if (!map) continue;
-        const hits = map.get(key);
-        if (hits && hits.length) {
-          const chosen = hits[0];
-          const valueIndex = dictValueRollIndex(chosen.text);
-          const allRolls = stats.flatMap((s) => s.rolls || []);
-          const stat = {
-            text: joined,
-            template: stats.map((s) => s.template).join(" "),
-            rolls: allRolls
-          };
-          return {
-            stat,
-            match: {
-              id: chosen.id,
-              text: chosen.text,
-              group: gid,
-              confidence: "normalized",
-              ambiguous: hits.length > 1,
-              valueRollIndex: valueIndex
-            }
-          };
+      const found = findInGroups(key, groups, compiled, false);
+      if (!found) return null;
+      const { gid, hits } = found;
+      const chosen = hits[0];
+      const valueIndex = dictValueRollIndex(chosen.text);
+      const allRolls = stats.flatMap((s) => s.rolls || []);
+      return {
+        stat: {
+          text: joined,
+          template: stats.map((s) => s.template).join(" "),
+          rolls: allRolls
+        },
+        match: {
+          id: chosen.id,
+          text: chosen.text,
+          group: gid,
+          confidence: "normalized",
+          ambiguous: hits.length > 1,
+          valueRollIndex: valueIndex
         }
-      }
-      return null;
+      };
     }
     function matchMod(mod, compiled) {
       const groups = TYPE_GROUP_PRIORITY[mod.type] || ["explicit"];
@@ -1265,6 +1262,7 @@ var require_query = __commonJS({
       { test: /斧/, option: "weapon.oneaxe" },
       { test: /剑/, option: "weapon.onesword" }
     ];
+    var RARITY_OPTION = { "\u7A00\u6709": "rare", "\u4F20\u5947": "unique", "\u9B54\u6CD5": "magic", "\u666E\u901A": "normal" };
     function guessCategory(parsedItem) {
       const cat = (parsedItem.category || "").trim();
       if (CATEGORY_BY_ITEM_CLASS[cat]) return CATEGORY_BY_ITEM_CLASS[cat];
@@ -1280,30 +1278,17 @@ var require_query = __commonJS({
       if (match.tradeInvert) return r.max != null ? { max: r.max } : { max: r.value };
       return { min: r.min != null ? r.min : r.value };
     }
-    var RARITY_OPTION = { "\u7A00\u6709": "rare", "\u4F20\u5947": "unique", "\u9B54\u6CD5": "magic", "\u666E\u901A": "normal" };
-    function addSocketFilters(query, item, opts = {}) {
-      var _a;
-      if (opts.sockets === false) return void 0;
-      const raw = item.sockets;
-      if (typeof raw !== "string" || !raw.trim()) return void 0;
-      const count = raw.trim().split(/\s+/).filter(Boolean).length;
-      if (!count) return void 0;
-      const equipment = (_a = query.filters).equipment_filters ?? (_a.equipment_filters = { disabled: false, filters: {} });
-      equipment.disabled = false;
-      const override = opts.socketsMin;
-      equipment.filters.rune_sockets = { min: override != null ? Math.floor(override) : count };
-      return count;
+    function isDisabledByDefault(mod, parsedItem, opts) {
+      const { tierMax, includeUntiered } = opts;
+      if (parsedItem.category === "\u5F15\u8DEF\u77F3") return true;
+      if (parsedItem.rarity === "\u4F20\u5947") {
+        return mod.type === "Rune" || mod.tier == null && mod.type !== "Explicit" && !includeUntiered;
+      }
+      if (mod.tier != null) return mod.tier > tierMax;
+      return !includeUntiered;
     }
-    function buildQuery2(parsedItem, matched, opts = {}) {
-      var _a, _b, _c;
-      const {
-        tierMax = 2,
-        includeUntiered = false,
-        league = "\u8054\u8D5B",
-        pseudoEnabled = true,
-        pseudoRangePercent = 0
-      } = opts;
-      const filters = [];
+    function groupModFilters(matched, parsedItem, opts) {
+      const andFilters = [];
       const notFilters = [];
       const candidates = [];
       const seen = /* @__PURE__ */ new Set();
@@ -1320,20 +1305,10 @@ var require_query = __commonJS({
             continue;
           }
         }
-        let disabled;
-        if (parsedItem.category === "\u5F15\u8DEF\u77F3") {
-          disabled = true;
-        } else if (parsedItem.rarity === "\u4F20\u5947") {
-          disabled = mod.type === "Rune" || mod.tier == null && mod.type !== "Explicit" && !includeUntiered;
-        } else if (mod.tier != null) {
-          disabled = mod.tier > tierMax;
-        } else {
-          disabled = !includeUntiered;
-        }
         const filter = { id: match.id };
         if (value) filter.value = value;
-        if (disabled) filter.disabled = true;
-        filters.push(filter);
+        if (isDisabledByDefault(mod, parsedItem, opts)) filter.disabled = true;
+        andFilters.push(filter);
         candidates.push({
           id: match.id,
           filter,
@@ -1342,50 +1317,87 @@ var require_query = __commonJS({
           type: (match.group || mod.type || "").toLowerCase()
         });
       }
-      const query = {
-        status: { option: "any" },
-        stats: [{ type: "and", filters }],
-        filters: {}
-      };
-      if (notFilters.length) query.stats.push({ type: "not", filters: notFilters });
-      const pseudoResult = pseudoEnabled && parsedItem.category !== "\u5F15\u8DEF\u77F3" ? applyPseudoMerge(query, candidates, { pseudoRangePercent }) : { suggestions: [], applied: [] };
+      return { andFilters, notFilters, candidates };
+    }
+    function applyNameAndType(query, parsedItem) {
       if (parsedItem.rarity === "\u4F20\u5947" && parsedItem.name) {
         query.name = parsedItem.name;
         if (parsedItem.baseName) query.type = parsedItem.baseName;
       } else if (parsedItem.baseName) {
         query.type = parsedItem.baseName;
       }
+    }
+    function typeFiltersOf(query) {
+      var _a;
+      (_a = query.filters).type_filters ?? (_a.type_filters = { filters: {} });
+      return query.filters.type_filters.filters;
+    }
+    function applyTypeFilters(query, parsedItem, opts) {
       const category = guessCategory(parsedItem);
       if (category) {
         query.filters.type_filters = { filters: { category: { option: category } } };
       }
       const rarityOpt = RARITY_OPTION[parsedItem.rarity];
       if (rarityOpt) {
-        (_a = query.filters).type_filters ?? (_a.type_filters = { filters: {} });
-        query.filters.type_filters.filters.rarity = { option: rarityOpt };
+        typeFiltersOf(query).rarity = { option: rarityOpt };
       }
       if (parsedItem.itemLevel != null && parsedItem.rarity !== "\u4F20\u5947") {
-        (_b = query.filters).type_filters ?? (_b.type_filters = { filters: {} });
-        query.filters.type_filters.filters.ilvl = { min: parsedItem.itemLevel };
+        typeFiltersOf(query).ilvl = { min: parsedItem.itemLevel };
       }
       if (parsedItem.quality != null && parsedItem.quality > 20 && opts.quality !== false) {
-        (_c = query.filters).type_filters ?? (_c.type_filters = { filters: {} });
         const override = opts.qualityMin;
-        query.filters.type_filters.filters.quality = {
+        typeFiltersOf(query).quality = {
           min: override != null ? Math.floor(override) : parsedItem.quality
         };
       }
-      if (parsedItem.rarity === "\u4F20\u5947" || parsedItem.category === "\u5F15\u8DEF\u77F3") {
-        const unidentified = !!parsedItem.unidentified;
-        const corrupted = !!parsedItem.corrupted;
-        query.filters.misc_filters = {
-          disabled: false,
-          filters: {
-            corrupted: { option: corrupted ? "true" : unidentified ? null : "false" },
-            identified: { option: unidentified ? "false" : "true" }
-          }
-        };
-      }
+    }
+    function applyMiscFilters(query, parsedItem) {
+      if (parsedItem.rarity !== "\u4F20\u5947" && parsedItem.category !== "\u5F15\u8DEF\u77F3") return;
+      const unidentified = !!parsedItem.unidentified;
+      const corrupted = !!parsedItem.corrupted;
+      query.filters.misc_filters = {
+        disabled: false,
+        filters: {
+          corrupted: { option: corrupted ? "true" : unidentified ? null : "false" },
+          identified: { option: unidentified ? "false" : "true" }
+        }
+      };
+    }
+    function addSocketFilters(query, item, opts = {}) {
+      var _a;
+      if (opts.sockets === false) return void 0;
+      const raw = item.sockets;
+      if (typeof raw !== "string" || !raw.trim()) return void 0;
+      const count = raw.trim().split(/\s+/).filter(Boolean).length;
+      if (!count) return void 0;
+      const equipment = (_a = query.filters).equipment_filters ?? (_a.equipment_filters = { disabled: false, filters: {} });
+      equipment.disabled = false;
+      const override = opts.socketsMin;
+      equipment.filters.rune_sockets = { min: override != null ? Math.floor(override) : count };
+      return count;
+    }
+    function buildQuery2(parsedItem, matched, opts = {}) {
+      const {
+        tierMax = 2,
+        includeUntiered = false,
+        league = "\u8054\u8D5B",
+        pseudoEnabled = true,
+        pseudoRangePercent = 0
+      } = opts;
+      const { andFilters, notFilters, candidates } = groupModFilters(matched, parsedItem, {
+        tierMax,
+        includeUntiered
+      });
+      const query = {
+        status: { option: "any" },
+        stats: [{ type: "and", filters: andFilters }],
+        filters: {}
+      };
+      if (notFilters.length) query.stats.push({ type: "not", filters: notFilters });
+      const pseudoResult = pseudoEnabled && parsedItem.category !== "\u5F15\u8DEF\u77F3" ? applyPseudoMerge(query, candidates, { pseudoRangePercent }) : { suggestions: [], applied: [] };
+      applyNameAndType(query, parsedItem);
+      applyTypeFilters(query, parsedItem, opts);
+      applyMiscFilters(query, parsedItem);
       const weaponDps = addDpsFilters(query, parsedItem, opts);
       const defences = addDefenceFilters(query, parsedItem, opts, matched);
       const mapMods = addMapFilters(query, parsedItem, opts);

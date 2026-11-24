@@ -131,31 +131,43 @@ function deserializeCompiled(serialized) {
 }
 
 /**
+ * 在分组优先级列表里查找命中的词典条目。
+ * @param key        归一化后的待匹配文本
+ * @param groups     分组优先级（前面的优先）
+ * @param compiled   compileDictionary 产物
+ * @param patterns   是否查 __patterns__ 模板索引（整条匹配只查精确索引）
+ * @returns { gid, hits } | null  命中的分组与候选条目数组
+ */
+function findInGroups(key, groups, compiled, patterns = true) {
+  for (const gid of groups) {
+    const map = compiled[gid];
+    if (!map) continue;
+    const hits = map.get(key) || (patterns ? map.get('__patterns__')?.get(key) : null);
+    if (hits && hits.length) return { gid, hits };
+  }
+  return null;
+}
+
+/**
  * 给一条词缀的单行文本匹配 trade id
  * @returns { id, text, group, confidence, ambiguous } | null
  */
 function matchStatLine(stat, groups, compiled) {
   const key = normalizeTemplate(stat.text);
-  for (const gid of groups) {
-    const map = compiled[gid];
-    if (!map) continue;
-    const hits = map.get(key) || map.get('__patterns__')?.get(key);
-    if (hits && hits.length) {
-      const exact = hits.find((h) => h.text === stat.template);
-      const chosen = exact || hits[0];
-      const valueIndex = dictValueRollIndex(chosen.text);
-      return {
-        id: chosen.id,
-        text: chosen.text,
-        group: gid,
-        confidence: exact ? 'exact' : 'normalized',
-        ambiguous: hits.length > 1,
-        tradeInvert: isInvertedStat(chosen.id) || undefined,
-        valueRollIndex: valueIndex,
-      };
-    }
-  }
-  return null;
+  const found = findInGroups(key, groups, compiled);
+  if (!found) return null;
+  const { gid, hits } = found;
+  const exact = hits.find((h) => h.text === stat.template);
+  const chosen = exact || hits[0];
+  return {
+    id: chosen.id,
+    text: chosen.text,
+    group: gid,
+    confidence: exact ? 'exact' : 'normalized',
+    ambiguous: hits.length > 1,
+    tradeInvert: isInvertedStat(chosen.id) || undefined,
+    valueRollIndex: dictValueRollIndex(chosen.text),
+  };
 }
 
 /**
@@ -169,34 +181,29 @@ function matchWholeMod(mod, groups, compiled) {
   if (stats.length < 2) return null;
   const joined = stats.map((s) => s.text).join('\n');
   const key = normalizeTemplate(joined);
-  for (const gid of groups) {
-    const map = compiled[gid];
-    if (!map) continue;
-    const hits = map.get(key);
-    if (hits && hits.length) {
-      const chosen = hits[0];
-      // roll 取整条文本里词典 # 对应的那个数值（跨行累计计数）
-      const valueIndex = dictValueRollIndex(chosen.text);
-      const allRolls = stats.flatMap((s) => s.rolls || []);
-      const stat = {
-        text: joined,
-        template: stats.map((s) => s.template).join(' '),
-        rolls: allRolls,
-      };
-      return {
-        stat,
-        match: {
-          id: chosen.id,
-          text: chosen.text,
-          group: gid,
-          confidence: 'normalized',
-          ambiguous: hits.length > 1,
-          valueRollIndex: valueIndex,
-        },
-      };
-    }
-  }
-  return null;
+  // 整条匹配只查精确索引，不查 __patterns__ 模板索引
+  const found = findInGroups(key, groups, compiled, false);
+  if (!found) return null;
+  const { gid, hits } = found;
+  const chosen = hits[0];
+  // roll 取整条文本里词典 # 对应的那个数值（跨行累计计数）
+  const valueIndex = dictValueRollIndex(chosen.text);
+  const allRolls = stats.flatMap((s) => s.rolls || []);
+  return {
+    stat: {
+      text: joined,
+      template: stats.map((s) => s.template).join(' '),
+      rolls: allRolls,
+    },
+    match: {
+      id: chosen.id,
+      text: chosen.text,
+      group: gid,
+      confidence: 'normalized',
+      ambiguous: hits.length > 1,
+      valueRollIndex: valueIndex,
+    },
+  };
 }
 
 /**
