@@ -9,6 +9,11 @@
  *   - pseudo 合并：把同族词缀合成一条「总数」筛选，写入第二个 and 组
  */
 
+const { addDpsFilters } = require('./weapon-dps.js');
+const { addDefenceFilters } = require('./defences.js');
+const { addMapFilters } = require('./map-mods.js');
+const { buildPseudoFilters } = require('./pseudo.js');
+
 // 国服市集类别 option 映射
 // 权威来源：国服 /api/trade2/data/filters 的 type_filters.category 枚举
 // （已存档 data/cn-filters.json，中文 text 即游戏「物品类别」字段）。
@@ -65,16 +70,14 @@ function rollValue(stat, match) {
   return { min: r.min != null ? r.min : r.value };
 }
 
+// 稀有度 → 国服市集 rarity option
+const RARITY_OPTION = { '稀有': 'rare', '传奇': 'unique', '魔法': 'magic', '普通': 'normal' };
+
 /**
  * @param parsedItem  parseItemText 产物
- * @param matched     matchItem 产物 [{mod, match}]
- * @param opts        { tierMax, includeUntiered, league, host }
+ * @param matched     matchItem 产物 [{mod, stat, match}]
+ * @param opts        { tierMax, includeUntiered, league, pseudoEnabled, pseudoRangePercent, ... }
  */
-const { addDpsFilters } = require('./weapon-dps.js');
-const { addDefenceFilters } = require('./defences.js');
-const { addMapFilters } = require('./map-mods.js');
-const { buildPseudoFilters } = require('./pseudo.js');
-
 function buildQuery(parsedItem, matched, opts = {}) {
   const {
     tierMax = 2,
@@ -156,7 +159,6 @@ function buildQuery(parsedItem, matched, opts = {}) {
   }
 
   // 稀有度过滤：稀有→rare（避免混入传奇/魔法），传奇→unique
-  const RARITY_OPTION = { '稀有': 'rare', '传奇': 'unique', '魔法': 'magic', '普通': 'normal' };
   const rarityOpt = RARITY_OPTION[parsedItem.rarity];
   if (rarityOpt) {
     query.filters.type_filters ??= { filters: {} };

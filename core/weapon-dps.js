@@ -5,19 +5,15 @@
  * 不含暴击、混沌、技能倍率、人物天赋、命中、抗性或战弩装填时间。
  */
 
-const ELEMENT_NAMES = {
-  fire: '火焰',
-  cold: '冰霜',
-  lightning: '闪电',
-};
+const { emptyRoll, addRollMatch, effectiveQuality, statTexts } = require('./roll-utils.js');
 
-function statTexts(item) {
-  return (item.mods || []).flatMap((mod) => (mod.stats || []).map((stat) => stat.text || ''));
-}
+const ELEMENTS = ['fire', 'cold', 'lightning'];
+const ELEMENT_NAMES = { fire: '火焰', cold: '冰霜', lightning: '闪电' };
+const FLAT_DAMAGE_TARGET = { 物理: 'physicalFlat', 火焰: 'fire', 冰霜: 'cold', 闪电: 'lightning' };
 
-function emptyRoll() {
-  return { value: 0, min: 0, max: 0 };
-}
+const PHYSICAL_INCREASED = /^物理伤害提高\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*%/;
+const FLAT_DAMAGE = /^(?:攻击)?附加\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*-\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*(物理|火焰|冰霜|闪电)伤害/;
+const ATTACK_SPEED_INCREASED = /^攻击速度提高\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*%/;
 
 // 只统计武器本地的 flat 与 increased；全局物理/元素伤害提高不参与。
 function sumDamageStats(item) {
@@ -30,29 +26,21 @@ function sumDamageStats(item) {
   };
 
   for (const text of statTexts(item)) {
-    const increased = text.match(/^物理伤害提高\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*%/);
+    const increased = text.match(PHYSICAL_INCREASED);
     if (increased) {
-      totals.physicalIncreased.value += Number(increased[1]);
-      totals.physicalIncreased.min += Number(increased[2] ?? increased[1]);
-      totals.physicalIncreased.max += Number(increased[3] ?? increased[1]);
+      addRollMatch(totals.physicalIncreased, increased);
       continue;
     }
 
-    const flat = text.match(/^(?:攻击)?附加\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*-\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*(物理|火焰|冰霜|闪电)伤害/);
+    const flat = text.match(FLAT_DAMAGE);
     if (!flat) continue;
-    const roll = {
-      min: (Number(flat[1]) + Number(flat[4])) / 2,
-      max: (Number(flat[1]) + Number(flat[4])) / 2,
-      value: (Number(flat[1]) + Number(flat[4])) / 2,
-    };
-    roll.min = (Number(flat[2] ?? flat[1]) + Number(flat[5] ?? flat[4])) / 2;
-    roll.max = (Number(flat[3] ?? flat[1]) + Number(flat[6] ?? flat[4])) / 2;
-    const target = flat[7] === '物理' ? totals.physicalFlat
-      : flat[7] === '火焰' ? totals.fire
-      : flat[7] === '冰霜' ? totals.cold : totals.lightning;
-    target.value += roll.value;
-    target.min += roll.min;
-    target.max += roll.max;
+    // 附加 X-Y 伤害的面板均值取 (X+Y)/2；区间端点同口径。
+    const low = Number(flat[1]);
+    const high = Number(flat[4]);
+    const target = totals[FLAT_DAMAGE_TARGET[flat[7]]];
+    target.value += (low + high) / 2;
+    target.min += (Number(flat[2] ?? flat[1]) + Number(flat[5] ?? flat[4])) / 2;
+    target.max += (Number(flat[3] ?? flat[1]) + Number(flat[6] ?? flat[4])) / 2;
   }
   return totals;
 }
@@ -72,20 +60,72 @@ function parseElementalHeader(value, mods = []) {
         texts.some((text) => text.includes(`附加`) && text.includes(`${name}伤害`)))?.[0];
     }
     if (!element || !totals[element]) continue;
-    totals[element].value = (Number(match[1]) + Number(match[2])) / 2;
-    totals[element].min = totals[element].value;
-    totals[element].max = totals[element].value;
+    const average = (Number(match[1]) + Number(match[2])) / 2;
+    totals[element] = { value: average, min: average, max: average };
   }
   return totals;
 }
 
-function isModifiable(item) {
-  return !item.corrupted && !item.isCorrupted && !item.mirrored && !item.isMirrored &&
-    !item.sanctified && !item.isSanctified;
+/** 攻速 roll：面板 APS 是实际值（含品质），只按本地攻速词缀推导理论上下界 */
+function sumAttackSpeed(item, aps) {
+  const increased = emptyRoll();
+  for (const text of statTexts(item)) {
+    const match = text.match(ATTACK_SPEED_INCREASED);
+    if (match) addRollMatch(increased, match);
+  }
+  const base = aps / (1 + increased.value / 100);
+  return {
+    value: aps,
+    min: base * (1 + increased.min / 100),
+    max: base * (1 + increased.max / 100),
+    base,
+    increased,
+  };
 }
 
+/** 施加 increased% 与品质加成 */
 function increased(flat, increasedPct, qualityPct) {
   return flat * (1 + increasedPct / 100) * (1 + qualityPct / 100);
+}
+
+/**
+ * 物理均值反推：B = P / ((1+Q)(1+I)) - F，随后以 B+F 重新施加 I 与 q20。
+ * 没有物理面板但存在本地附加物理伤害、且无任何元素伤害时，只做 q0 的
+ * flat 下限估计，不用 (P-I-F) 把未知基础伤害误算成负值。
+ */
+function calcPhysicalAverage(props, stats, quality, q20, hasElemental) {
+  const physical = props.physicalDamage;
+  const hasPhysical = physical && Number.isFinite(physical.min) && Number.isFinite(physical.max) &&
+    physical.min + physical.max > 0;
+  if (!hasPhysical) {
+    if (!hasElemental && stats.physicalFlat.value > 0) {
+      return { ...stats.physicalFlat, base: 0, quality: 0, estimatedFromFlatOnly: true };
+    }
+    return undefined;
+  }
+  const currentAverage = (physical.min + physical.max) / 2;
+  const increasedPct = stats.physicalIncreased.value;
+  const base = currentAverage / ((1 + quality / 100) * (1 + increasedPct / 100)) -
+    stats.physicalFlat.value;
+  const min = increased(base + stats.physicalFlat.min, stats.physicalIncreased.min, q20);
+  const max = increased(base + stats.physicalFlat.max, stats.physicalIncreased.max, q20);
+  return {
+    value: increased(base + stats.physicalFlat.value, increasedPct, q20),
+    min: Math.min(min, max),
+    max: Math.max(min, max),
+    base,
+    quality: q20,
+  };
+}
+
+/** 各均值 × 对应攻速边界 → DPS roll */
+function rollDps(entries, attackSpeed) {
+  const sum = (key) => entries.reduce((total, entry) => total + entry[key], 0);
+  return {
+    value: sum('value') * attackSpeed.value,
+    min: sum('min') * attackSpeed.min,
+    max: sum('max') * attackSpeed.max,
+  };
 }
 
 /**
@@ -99,83 +139,37 @@ function calcWeaponDps(item) {
 
   const stats = sumDamageStats(item);
   const headerElements = parseElementalHeader(props.elementalDamage, item.mods);
-  // 攻速提高只用于推导词缀范围；面板 APS 是实际值，不按品质放大。
-  let attackSpeedIncreased = emptyRoll();
-  for (const text of statTexts(item)) {
-    const match = text.match(/^攻击速度提高\s*(-?[\d.]+)(?:\s*\((-?[\d.]+)-(-?[\d.]+)\))?\s*%/);
-    if (!match) continue;
-    attackSpeedIncreased.value += Number(match[1]);
-    attackSpeedIncreased.min += Number(match[2] ?? match[1]);
-    attackSpeedIncreased.max += Number(match[3] ?? match[1]);
-  }
-  const baseAttackSpeed = aps / (1 + attackSpeedIncreased.value / 100);
-  const attackSpeed = {
-    value: aps,
-    min: baseAttackSpeed * (1 + attackSpeedIncreased.min / 100),
-    max: baseAttackSpeed * (1 + attackSpeedIncreased.max / 100),
-    base: baseAttackSpeed,
-    increased: attackSpeedIncreased,
-  };
-  const physical = props.physicalDamage;
-  const hasPhysical = physical && Number.isFinite(physical.min) && Number.isFinite(physical.max) &&
-    physical.min + physical.max > 0;
-  const hasElemental = Object.values(headerElements).some((entry) => entry.value > 0) ||
-    ['fire', 'cold', 'lightning'].some((element) => stats[element].value > 0);
-  // 没有物理面板但存在本地附加物理伤害时，只做 q0 的 flat 下限估计，
-  // 不用 (P-I-F) 把未知基础伤害误算成负值。
-  const physicalOnlyFromFlat = !hasPhysical && !hasElemental && stats.physicalFlat.value > 0;
+  const attackSpeed = sumAttackSpeed(item, aps);
   const quality = item.quality ?? 0;
-  const q20 = isModifiable(item) ? Math.max(20, quality) : quality;
+  const q20 = effectiveQuality(item);
 
-  let physicalAverage;
-  if (physicalOnlyFromFlat) {
-    physicalAverage = {
-      value: stats.physicalFlat.value,
-      min: stats.physicalFlat.min,
-      max: stats.physicalFlat.max,
-      base: 0,
-      quality: 0,
-      estimatedFromFlatOnly: true,
-    };
-  } else if (hasPhysical) {
-    const currentAverage = (physical.min + physical.max) / 2;
-    const increasedPct = stats.physicalIncreased.value;
-    // B = P / ((1+Q)(1+I)) - F；随后以 B+F 重新施加 I 与 q20。
-    const base = currentAverage / ((1 + quality / 100) * (1 + increasedPct / 100)) -
-      stats.physicalFlat.value;
-    const value = increased(base + stats.physicalFlat.value, increasedPct, q20);
-    const min = increased(base + stats.physicalFlat.min, stats.physicalIncreased.min, q20);
-    const max = increased(base + stats.physicalFlat.max, stats.physicalIncreased.max, q20);
-    physicalAverage = { value, min: Math.min(min, max), max: Math.max(min, max), base, quality: q20 };
-  }
+  const hasElemental = ELEMENTS.some((element) =>
+    headerElements[element].value > 0 || stats[element].value > 0);
+  const physicalAverage = calcPhysicalAverage(props, stats, quality, q20, hasElemental);
 
   const elements = {};
   let hasElementalDamage = false;
-  for (const element of Object.keys(ELEMENT_NAMES)) {
+  for (const element of ELEMENTS) {
     const header = headerElements[element];
     const local = stats[element];
     if (header.value <= 0 && local.value <= 0) continue;
     hasElementalDamage = true;
     // EE2 以面板均值为当前值，词缀 roll 提供筛选上下界。
     const value = header.value > 0 ? header.value : local.value;
-    elements[element] = { value, min: local.min, max: local.max };
-    if (local.value <= 0) {
-      elements[element].min = value;
-      elements[element].max = value;
-    }
+    elements[element] = local.value > 0
+      ? { value, min: local.min, max: local.max }
+      : { value, min: value, max: value };
   }
 
-  if (!hasPhysical && !hasElemental && !physicalOnlyFromFlat) return undefined;
-  const roll = (averages) => ({
-    value: averages.reduce((sum, entry) => sum + entry.value, 0) * attackSpeed.value,
-    min: averages.reduce((sum, entry) => sum + entry.min, 0) * attackSpeed.min,
-    max: averages.reduce((sum, entry) => sum + entry.max, 0) * attackSpeed.max,
-  });
+  if (!physicalAverage && !hasElementalDamage) return undefined;
+  const pDPS = physicalAverage ? rollDps([physicalAverage], attackSpeed) : undefined;
   const elemental = Object.values(elements);
-  const pDPS = (hasPhysical || physicalOnlyFromFlat) ? roll([physicalAverage]) : undefined;
-  const eDPS = hasElemental ? roll(elemental) : undefined;
-  const totalDPS = hasElemental ? roll([...((hasPhysical || physicalOnlyFromFlat) ? [physicalAverage] : []), ...elemental]) : undefined;
+  const eDPS = hasElementalDamage ? rollDps(elemental, attackSpeed) : undefined;
+  const totalDPS = hasElementalDamage
+    ? rollDps([...(physicalAverage ? [physicalAverage] : []), ...elemental], attackSpeed)
+    : undefined;
 
+  const round = (dps) => (dps ? Math.round(dps.value) : undefined);
   return {
     attackSpeed,
     physicalAverage,
@@ -184,9 +178,9 @@ function calcWeaponDps(item) {
     eDPS,
     totalDPS,
     display: {
-      pDPS: pDPS ? Math.round(pDPS.value) : undefined,
-      eDPS: eDPS ? Math.round(eDPS.value) : undefined,
-      totalDPS: totalDPS ? Math.round(totalDPS.value) : undefined,
+      pDPS: round(pDPS),
+      eDPS: round(eDPS),
+      totalDPS: round(totalDPS),
       fireDPS: elements.fire ? Math.round(elements.fire.value * attackSpeed.value) : undefined,
       coldDPS: elements.cold ? Math.round(elements.cold.value * attackSpeed.value) : undefined,
       lightningDPS: elements.lightning ? Math.round(elements.lightning.value * attackSpeed.value) : undefined,
@@ -216,11 +210,9 @@ function addDpsFilters(query, item, opts = {}) {
   if (dps.totalDPS) filters.dps = { min: searchMin(dps.totalDPS, item.rarity, rangePercent) };
   if (dps.pDPS) filters.pdps = { min: searchMin(dps.pDPS, item.rarity, rangePercent) };
   if (dps.eDPS) filters.edps = { min: searchMin(dps.eDPS, item.rarity, rangePercent) };
-  if (opts.dpsMin != null || opts.pdpsMin != null || opts.edpsMin != null) {
-    for (const key of ['dps', 'pdps', 'edps']) {
-      const requested = opts[`${key}Min`] ?? opts.dpsMin;
-      if (filters[key] && requested != null) filters[key].min = Math.floor(requested);
-    }
+  for (const key of ['dps', 'pdps', 'edps']) {
+    const requested = opts[`${key}Min`] ?? opts.dpsMin;
+    if (filters[key] && requested != null) filters[key].min = Math.floor(requested);
   }
   query.filters.equipment_filters = { disabled: false, filters };
   return dps;

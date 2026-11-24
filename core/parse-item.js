@@ -12,6 +12,9 @@
  * 前缀/后缀是「前缀属性/后缀属性」，亵渎/打造是「亵渎的/打造的」。
  */
 
+const { calcWeaponDps } = require('./weapon-dps.js');
+const { calcDefences } = require('./defences.js');
+
 // ---- 词缀元信息行正则（国服简中）----
 // { [亵渎的|打造的|已破裂] 前缀属性|后缀属性|基底属性 ["名字"] (等阶：N) — tag1, tag2 }
 // 名字与等阶均可选：基底属性行无名字无 tier，如 { 基底属性 — 攻击 }
@@ -26,6 +29,38 @@ const GRANT_SKILL_LINE = /^获得技能:\s*(.+)$/;
 const NUM_RANGE = /(?<sign>[+-]?)(?<value>\d+(?:\.\d+)?)\s*(?:\((?<min>[+-]?\d+(?:\.\d+)?)\s*[-–—]\s*(?<max>[+-]?\d+(?:\.\d+)?)\))?/g;
 
 const SECTION_SEP = /^-{4,}$/;
+const TAGGED_PLAIN = /\((rune|implicit|enchant|crafted|fractured|desecrated)\)\s*$/;
+
+// ---- 头部字段表：行首标签 → item 字段 ----
+// 按声明顺序取第一个命中（与原 else-if 链一致）。
+// target 是 item.properties 的键；field 直接写 item 顶层。
+const HEADER_FIELDS = [
+  { pattern: /^物品类别:\s*(.+)$/, field: 'category', text: true },
+  { pattern: /^稀\s*有\s*度:\s*(.+)$/, field: 'rarity', text: true },
+  { pattern: /^物品等级:\s*(\d+)/, field: 'itemLevel' },
+  { pattern: /^品质:\s*\+?(\d+)%/, field: 'quality' },
+  { pattern: /^护甲:\s*(\d+)/, target: 'armour' },
+  { pattern: /^闪避(?:值)?:\s*(\d+)/, target: 'evasion' },
+  { pattern: /^能量护盾(?:上限)?:\s*(\d+)/, target: 'energyShield' },
+  { pattern: /^符文(?:结界|壁垒):\s*(\d+)/, target: 'ward' },
+  { pattern: /^格挡(?:几率|率)?:\s*([\d.]+)%/, target: 'block' },
+  { pattern: /^精魂:\s*(\d+)/, target: 'spirit' },
+  { pattern: /^插槽:\s*(.+)$/, field: 'sockets', text: true },
+  // 引路石面板字段（map_filters）
+  { pattern: /^(?:引路石)?等阶:\s*(\d+)/, target: 'mapTier' },
+  { pattern: /^怪物群(?:大小|规模):\s*\+?([\d.]+)%/, target: 'mapPackSize' },
+  { pattern: /^魔法怪物(?:数量)?:\s*\+?([\d.]+)%/, target: 'mapMagicMonsters' },
+  { pattern: /^稀有怪物(?:数量)?:\s*\+?([\d.]+)%/, target: 'mapRareMonsters' },
+  { pattern: /^物品稀有度:\s*\+?([\d.]+)%/, target: 'mapIir' },
+  { pattern: /^(?:可用)?(?:复活|挑战)次数:\s*(\d+)/, target: 'mapRevives' },
+  { pattern: /^(?:引路石)?掉落几率:\s*\+?([\d.]+)%/, target: 'mapBonus' },
+  { pattern: /^金币:\s*\+?([\d.]+)%/, target: 'mapGold' },
+  { pattern: /^经验:\s*\+?([\d.]+)%/, target: 'mapExperience' },
+  { pattern: /^暴击率:\s*([\d.]+)%/, target: 'critChance' },
+  { pattern: /^每秒攻击次数:\s*([\d.]+)/, target: 'attackSpeed' },
+  { pattern: /^元素伤害:\s*(.+)$/, target: 'elementalDamage', text: true },
+];
+const PHYSICAL_DAMAGE_LINE = /^物理伤害:\s*(\d+)-(\d+)/;
 
 // 词缀类型后缀 → ModifierType
 function detectModType(statLines) {
@@ -83,6 +118,136 @@ function goodness(roll, better = 'positive') {
   return Math.round(g * 1000) / 1000;
 }
 
+/** 头部字段：逐行按字段表取第一个命中 */
+function parseHeader(lines, item) {
+  for (const line of lines) {
+    if (/^被腐化/.test(line)) { item.corrupted = true; continue; }
+    if (/^未鉴定/.test(line)) { item.unidentified = true; continue; }
+    const physical = line.match(PHYSICAL_DAMAGE_LINE);
+    if (physical) {
+      item.properties.physicalDamage = { min: Number(physical[1]), max: Number(physical[2]) };
+      continue;
+    }
+    for (const { pattern, field, target, text } of HEADER_FIELDS) {
+      const m = line.match(pattern);
+      if (!m) continue;
+      const value = text ? m[1].trim() : Number(m[1]);
+      if (field) item[field] = value;
+      else item.properties[target] = value;
+      break;
+    }
+  }
+}
+
+/** 名称：稀有度行之后、第一条分隔线之前的非字段行 */
+function parseNames(lines, item) {
+  const rarityIdx = lines.findIndex((l) => /^稀\s*有\s*度:/.test(l));
+  if (rarityIdx < 0) return;
+  const nameLines = [];
+  for (let i = rarityIdx + 1; i < lines.length; i++) {
+    if (SECTION_SEP.test(lines[i])) break;
+    if (/^[^:：]+[:：]/.test(lines[i])) continue; // 跳过「品质:」这类字段行
+    if (lines[i].trim()) nameLines.push(lines[i].trim());
+  }
+  if (nameLines.length >= 2) {
+    item.name = nameLines[0];
+    item.baseName = nameLines[nameLines.length - 1];
+  } else if (nameLines.length === 1) {
+    item.baseName = nameLines[0];
+  }
+}
+
+const SPECIAL_MOD_TYPE = { 亵渎的: 'Desecrated', 打造的: 'Crafted', 已破裂: 'Fractured' };
+const GENERATION = {
+  前缀属性: 'prefix', 前缀词缀: 'prefix',
+  后缀属性: 'suffix', 后缀词缀: 'suffix',
+};
+
+/** { ... } 元信息行 → 新词缀骨架（数值行随后追加） */
+function modFromInfoLine(groups) {
+  return {
+    type: SPECIAL_MOD_TYPE[groups.special] || (groups.gen === '基底属性' ? 'Implicit' : 'Explicit'),
+    generation: GENERATION[groups.gen] || 'implicit',
+    name: groups.name || groups.nameCN || undefined,
+    tier: groups.tier ? Number(groups.tier) : undefined,
+    rank: groups.rank ? Number(groups.rank) : undefined,
+    tags: groups.tags ? groups.tags.split(',').map((s) => s.trim()).filter(Boolean) : [],
+    statLines: [],
+  };
+}
+
+/** 获得技能行：单独成条（Skill 类型），不并入当前词缀 */
+function pushGrantedSkill(item, skillName, rawLine) {
+  item.grantedSkills ??= [];
+  item.grantedSkills.push(skillName);
+  item.mods.push({
+    type: 'Skill', generation: undefined, name: skillName,
+    tier: undefined, tags: [], statLines: [rawLine],
+  });
+}
+
+/**
+ * 词缀区扫描：遇到 { ... } 元信息行就开一条新词缀，后续非元信息行是它的数值文本。
+ * 头部（名称/属性/需求/插槽/ilvl）不含词缀，从第一个 {} 行或带类型标记的行起算。
+ */
+function parseMods(lines, item) {
+  let modRegionStarted = false;
+  let current = null;
+  const pendingPlain = []; // 没有元信息行的裸词缀（如 rune 行在分隔区）
+  const flush = () => { if (current) { item.mods.push(current); current = null; } };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (SECTION_SEP.test(trimmed)) { flush(); continue; }
+
+    const info = trimmed.match(MOD_LINE);
+    const isTaggedPlain = TAGGED_PLAIN.test(trimmed);
+    const skill = trimmed.match(GRANT_SKILL_LINE);
+    if (!modRegionStarted) {
+      if (!info && !isTaggedPlain && !skill) continue; // 仍在头部，跳过名称/字段行
+      modRegionStarted = true;
+    }
+
+    if (info) {
+      flush();
+      current = modFromInfoLine(info.groups);
+      continue;
+    }
+    if (skill) {
+      flush();
+      pushGrantedSkill(item, skill[1].trim(), trimmed);
+      continue;
+    }
+    // 跳过无关尾行（「引路石掉落」等）。头部字段行已在 modRegionStarted 之前被跳过，
+    // 这里不再按字段名过滤，否则会误杀「物理伤害提高 20% (rune)」这类词缀。
+    if (/^引路石掉落/.test(trimmed)) continue;
+    // 腐化/鉴定标记：不是词缀，只设 item 标志
+    if (/^被腐化/.test(trimmed)) { item.corrupted = true; continue; }
+    if (/^未鉴定/.test(trimmed)) { item.unidentified = true; continue; }
+    // flavour text（传奇装备底部的背景描述）不属于任何词缀：
+    // 当前词缀已有数值行时先收尾，后续 flavour 行直接跳过。
+    if (current && current.statLines.length > 0 && isFlavourText(trimmed)) { flush(); continue; }
+    if (!current && item.mods.length > 0 && isFlavourText(trimmed)) continue;
+
+    if (current) current.statLines.push(trimmed);
+    else pendingPlain.push(trimmed);
+  }
+  flush();
+
+  // 裸词缀（rune/implicit 等没有 {} 包裹的）单独成条
+  for (const pl of pendingPlain) {
+    item.mods.push({
+      type: detectModType([pl]),
+      generation: undefined,
+      name: undefined,
+      tier: undefined,
+      tags: [],
+      statLines: [pl],
+    });
+  }
+}
+
 /**
  * 主解析函数
  */
@@ -98,7 +263,6 @@ function parseItemText(raw) {
   }
 
   const lines = text.split('\n').map((l) => l.trimEnd());
-
   const item = {
     category: undefined,
     rarity: undefined,
@@ -113,145 +277,12 @@ function parseItemText(raw) {
     unidentified: false,
   };
 
-  // 3) 头部字段（第一个分隔线之前 + 散落的关键行）
-  for (const line of lines) {
-    let m;
-    if ((m = line.match(/^物品类别:\s*(.+)$/))) item.category = m[1].trim();
-    else if ((m = line.match(/^稀\s*有\s*度:\s*(.+)$/))) item.rarity = m[1].trim();
-    else if ((m = line.match(/^物品等级:\s*(\d+)/))) item.itemLevel = Number(m[1]);
-    else if ((m = line.match(/^品质:\s*\+?(\d+)%/))) item.quality = Number(m[1]);
-    else if ((m = line.match(/^护甲:\s*(\d+)/))) item.properties.armour = Number(m[1]);
-    else if ((m = line.match(/^闪避(?:值)?:\s*(\d+)/))) item.properties.evasion = Number(m[1]);
-    else if ((m = line.match(/^能量护盾(?:上限)?:\s*(\d+)/))) item.properties.energyShield = Number(m[1]);
-    else if ((m = line.match(/^符文(?:结界|壁垒):\s*(\d+)/))) item.properties.ward = Number(m[1]);
-    else if ((m = line.match(/^格挡(?:几率|率)?:\s*([\d.]+)%/))) item.properties.block = Number(m[1]);
-    else if ((m = line.match(/^精魂:\s*(\d+)/))) item.properties.spirit = Number(m[1]);
-    else if ((m = line.match(/^插槽:\s*(.+)$/))) item.sockets = m[1].trim();
-    // 引路石面板字段（map_filters）
-    else if ((m = line.match(/^(?:引路石)?等阶:\s*(\d+)/))) item.properties.mapTier = Number(m[1]);
-    else if ((m = line.match(/^怪物群(?:大小|规模):\s*\+?([\d.]+)%/))) item.properties.mapPackSize = Number(m[1]);
-    else if ((m = line.match(/^魔法怪物(?:数量)?:\s*\+?([\d.]+)%/))) item.properties.mapMagicMonsters = Number(m[1]);
-    else if ((m = line.match(/^稀有怪物(?:数量)?:\s*\+?([\d.]+)%/))) item.properties.mapRareMonsters = Number(m[1]);
-    else if ((m = line.match(/^物品稀有度:\s*\+?([\d.]+)%/))) item.properties.mapIir = Number(m[1]);
-    else if ((m = line.match(/^(?:可用)?(?:复活|挑战)次数:\s*(\d+)/))) item.properties.mapRevives = Number(m[1]);
-    else if ((m = line.match(/^(?:引路石)?掉落几率:\s*\+?([\d.]+)%/))) item.properties.mapBonus = Number(m[1]);
-    else if ((m = line.match(/^金币:\s*\+?([\d.]+)%/))) item.properties.mapGold = Number(m[1]);
-    else if ((m = line.match(/^经验:\s*\+?([\d.]+)%/))) item.properties.mapExperience = Number(m[1]);
-    else if ((m = line.match(/^物理伤害:\s*(\d+)-(\d+)/)))
-      item.properties.physicalDamage = { min: Number(m[1]), max: Number(m[2]) };
-    else if ((m = line.match(/^暴击率:\s*([\d.]+)%/)))
-      item.properties.critChance = Number(m[1]);
-    else if ((m = line.match(/^每秒攻击次数:\s*([\d.]+)/)))
-      item.properties.attackSpeed = Number(m[1]);
-    else if (/^被腐化/.test(line)) item.corrupted = true;
-    else if (/^未鉴定/.test(line)) item.unidentified = true;
-    else if ((m = line.match(/^元素伤害:\s*(.+)$/)))
-      item.properties.elementalDamage = m[1].trim();
-  }
+  // 3) 头部字段与名称
+  parseHeader(lines, item);
+  parseNames(lines, item);
 
-  // 名称：稀有度行之后、第一条分隔线之前的非字段行
-  const rarityIdx = lines.findIndex((l) => /^稀\s*有\s*度:/.test(l));
-  if (rarityIdx >= 0) {
-    const nameLines = [];
-    for (let i = rarityIdx + 1; i < lines.length; i++) {
-      if (SECTION_SEP.test(lines[i])) break;
-      if (/^[^:：]+[:：]/.test(lines[i])) continue; // 跳过「品质:」这类字段行
-      if (lines[i].trim()) nameLines.push(lines[i].trim());
-    }
-    if (nameLines.length >= 2) {
-      item.name = nameLines[0];
-      item.baseName = nameLines[nameLines.length - 1];
-    } else if (nameLines.length === 1) {
-      item.baseName = nameLines[0];
-    }
-  }
-
-  // 4) 词缀：逐行扫描，遇到 { ... } 元信息行就开一条新词缀，后续非元信息行是它的数值文本
-  //    头部（名称/属性/需求/插槽/ilvl）不含词缀，从第一个 {} 行或带 (rune/implicit) 标记的行起算。
-  let modRegionStarted = false;
-  let current = null;
-  let pendingPlain = []; // 没有元信息行的裸词缀（如 rune 行在分隔区）
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    if (SECTION_SEP.test(trimmed)) {
-      if (current) { item.mods.push(current); current = null; }
-      continue;
-    }
-    const isModInfo = MOD_LINE.test(trimmed);
-    const isTaggedPlain = /\((rune|implicit|enchant|crafted|fractured|desecrated)\)\s*$/.test(trimmed);
-    const isGrantSkill = GRANT_SKILL_LINE.test(trimmed);
-    if (!modRegionStarted) {
-      if (isModInfo || isTaggedPlain || isGrantSkill) modRegionStarted = true;
-      else continue; // 仍在头部，跳过名称/字段行
-    }
-    const mm = trimmed.match(MOD_LINE);
-    if (mm) {
-      if (current) item.mods.push(current);
-      const g = mm.groups;
-      const isBase = g.gen === '基底属性';
-      current = {
-        type: g.special === '亵渎的' ? 'Desecrated'
-            : g.special === '打造的' ? 'Crafted'
-            : g.special === '已破裂' ? 'Fractured'
-            : isBase ? 'Implicit'
-            : 'Explicit',
-        generation: /^(前缀属性|前缀词缀)$/.test(g.gen) ? 'prefix' : /^(后缀属性|后缀词缀)$/.test(g.gen) ? 'suffix' : 'implicit',
-        name: g.name || g.nameCN || undefined,
-        tier: g.tier ? Number(g.tier) : undefined,
-        rank: g.rank ? Number(g.rank) : undefined,
-        tags: g.tags ? g.tags.split(',').map((s) => s.trim()).filter(Boolean) : [],
-        statLines: [],
-      };
-      continue;
-    }
-    // 获得技能行：单独成条（Skill 类型），不并入当前词缀
-    const gs = trimmed.match(GRANT_SKILL_LINE);
-    if (gs) {
-      if (current) { item.mods.push(current); current = null; }
-      item.grantedSkills ??= [];
-      item.grantedSkills.push(gs[1].trim());
-      item.mods.push({
-        type: 'Skill', generation: undefined, name: gs[1].trim(),
-        tier: undefined, tags: [], statLines: [trimmed],
-      });
-      continue;
-    }
-    // 跳过无关尾行（「引路石掉落」等）。头部字段行已在 modRegionStarted 之前被跳过，
-    // 这里不再按字段名过滤，否则会误杀「物理伤害提高 20% (rune)」这类词缀。
-    if (/^引路石掉落/.test(trimmed)) continue;
-    // 腐化标记：不是词缀，设 item 标志并终止词缀区（后面可能还有 flavour text）
-    if (/^被腐化/.test(trimmed)) { item.corrupted = true; continue; }
-    if (/^未鉴定/.test(trimmed)) { item.unidentified = true; continue; }
-    // flavour text（传奇装备底部的背景描述）：连续中文句子、不含数值/词缀标记，
-    // 出现在最后一段分隔区（最后一个 {} 词缀之后）。用「不以 { 开头且不含 (rune) 等
-    // 标记、且当前词缀已有 statLines」来判定——flavour text 不属于任何词缀。
-    if (current && current.statLines.length > 0 && isFlavourText(trimmed)) {
-      item.mods.push(current); current = null;
-      continue; // 跳过 flavour text 行
-    }
-    if (!current && item.mods.length > 0 && isFlavourText(trimmed)) {
-      continue; // flavour text 的后续行（已脱离词缀上下文）
-    }
-    if (current) {
-      current.statLines.push(trimmed);
-    } else {
-      pendingPlain.push(trimmed);
-    }
-  }
-  if (current) item.mods.push(current);
-
-  // 裸词缀（rune/implicit 等没有 {} 包裹的）单独成条
-  for (const pl of pendingPlain) {
-    item.mods.push({
-      type: detectModType([pl]),
-      generation: undefined,
-      name: undefined,
-      tier: undefined,
-      tags: [],
-      statLines: [pl],
-    });
-  }
+  // 4) 词缀
+  parseMods(lines, item);
 
   // 5) 给每条词缀补 rolls / template / goodness
   for (const mod of item.mods) {
@@ -268,9 +299,7 @@ function parseItemText(raw) {
   }
 
   // 6) 整体指标：EE2 q20 物理 + 火/冰/电面板 DPS，不是角色实际输出。
-  const { calcWeaponDps } = require('./weapon-dps.js');
   const weaponDps = calcWeaponDps(item);
-  const { calcDefences } = require('./defences.js');
   const defences = calcDefences(item);
   if (weaponDps || defences) item.derived = { weaponDps, defences };
 

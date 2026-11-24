@@ -100,13 +100,10 @@ function addMapFilters(query, item, opts = {}) {
     const entry = mapMods[def.property];
     if (!entry) continue;
     const override = opts[`${def.filter}Min`];
-    if (override != null) {
-      mapFilters.filters[def.filter] = { min: def.integer ? Math.floor(override) : Math.floor(override) };
-      continue;
-    }
-    const value = entry.value;
-    const min = def.integer
-      ? Math.max(0, Math.floor(value)) // 整数面板不下调（如阶级/挑战次数）
+    const value = override != null ? override : entry.value;
+    // 整数面板不下调（如阶级/挑战次数）；百分比字段按 rangePercent 放宽下限
+    const min = (override != null || def.integer)
+      ? Math.max(0, Math.floor(value))
       : Math.max(0, Math.floor(value * (1 - percent)));
     mapFilters.filters[def.filter] = { min };
   }

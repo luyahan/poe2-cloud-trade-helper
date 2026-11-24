@@ -105,6 +105,19 @@ function resolveValue(value) {
   return null;
 }
 
+/** 收集命中规则表且数值有效的候选；ruleOf 返回 undefined/null 表示跳过 */
+function collectRows(candidates, ruleOf) {
+  const rows = [];
+  for (const candidate of candidates) {
+    const rule = ruleOf(candidate);
+    if (rule == null) continue;
+    const value = resolveValue(candidate.value);
+    if (value === null) continue;
+    rows.push({ candidate, rule, value });
+  }
+  return rows;
+}
+
 function makeSuggestion(id, sources, enabled, value) {
   return {
     id,
@@ -117,14 +130,7 @@ function makeSuggestion(id, sources, enabled, value) {
 
 /** 抗性合计：总元素抗性 / 总抗性 / 单元素合计 / 总混沌抗性 */
 function buildResistanceSuggestions(candidates) {
-  const rows = [];
-  for (const candidate of candidates) {
-    const rule = RESISTANCE_STATS[ruleKey(candidate.id)];
-    if (!rule) continue;
-    const value = resolveValue(candidate.value);
-    if (value === null) continue;
-    rows.push({ candidate, rule, value });
-  }
+  const rows = collectRows(candidates, (c) => RESISTANCE_STATS[ruleKey(c.id)]);
   if (rows.length === 0) return [];
 
   const elements = { fire: 0, cold: 0, lightning: 0 };
@@ -198,19 +204,12 @@ function buildResistanceSuggestions(candidates) {
 
 /** 属性合计：总力量/敏捷/智慧、全属性合计、属性总和 */
 function buildAttributeSuggestions(candidates) {
-  const rows = [];
-  for (const candidate of candidates) {
-    const attributes = ATTRIBUTE_STATS[ruleKey(candidate.id)];
-    if (!attributes) continue;
-    const value = resolveValue(candidate.value);
-    if (value === null) continue;
-    rows.push({ candidate, attributes, value });
-  }
+  const rows = collectRows(candidates, (c) => ATTRIBUTE_STATS[ruleKey(c.id)]);
   if (rows.length === 0) return [];
 
   const totals = { strength: 0, dexterity: 0, intelligence: 0 };
   for (const row of rows) {
-    for (const attribute of row.attributes) totals[attribute] += row.value;
+    for (const attribute of row.rule) totals[attribute] += row.value;
   }
 
   const suggestions = [];
@@ -220,7 +219,7 @@ function buildAttributeSuggestions(candidates) {
     ['intelligence', 'pseudo.pseudo_total_intelligence'],
   ]) {
     if (totals[attribute] <= 0) continue;
-    const attributeRows = rows.filter((row) => row.attributes.includes(attribute));
+    const attributeRows = rows.filter((row) => row.rule.includes(attribute));
     suggestions.push(makeSuggestion(
       id,
       attributeRows.map((row) => row.candidate),
@@ -229,7 +228,7 @@ function buildAttributeSuggestions(candidates) {
     ));
   }
 
-  const universalRows = rows.filter((row) => row.attributes.length === 3);
+  const universalRows = rows.filter((row) => row.rule.length === 3);
   const universal = universalRows.reduce((sum, row) => sum + row.value, 0);
   if (universal > 0) {
     suggestions.push(makeSuggestion(
@@ -260,14 +259,10 @@ function buildAttributeSuggestions(candidates) {
  * 只有力量词缀不会凭空造出一条总生命。
  */
 function buildLifeManaSuggestions(candidates) {
-  const rows = [];
-  for (const candidate of candidates) {
-    const key = ruleKey(candidate.id);
-    if (key !== LIFE_STAT && key !== MANA_STAT) continue;
-    const value = resolveValue(candidate.value);
-    if (value === null) continue;
-    rows.push({ candidate, key, value });
-  }
+  const rows = collectRows(candidates, (c) => {
+    const key = ruleKey(c.id);
+    return key === LIFE_STAT || key === MANA_STAT ? key : null;
+  });
   if (rows.length === 0) return [];
 
   const suggestions = [];
@@ -275,25 +270,20 @@ function buildLifeManaSuggestions(candidates) {
     [LIFE_STAT, 'strength', 'pseudo.pseudo_total_life', ATTRIBUTE_TO_LIFE, true],
     [MANA_STAT, 'intelligence', 'pseudo.pseudo_total_mana', ATTRIBUTE_TO_MANA, false],
   ]) {
-    const direct = rows.filter((row) => row.key === directKey);
+    const direct = rows.filter((row) => row.rule === directKey);
     if (direct.length === 0) continue;
     const directTotal = direct.reduce((sum, row) => sum + row.value, 0);
 
     // 力量/智慧来源（含双属性、全属性），按覆盖到该属性计其完整数值。
-    const attributeRows = [];
-    let attributeTotal = 0;
-    for (const candidate of candidates) {
-      const attributes = ATTRIBUTE_STATS[ruleKey(candidate.id)];
-      if (!attributes || !attributes.includes(attribute)) continue;
-      const value = resolveValue(candidate.value);
-      if (value === null) continue;
-      attributeRows.push(candidate);
-      attributeTotal += value;
-    }
+    const attributeRows = collectRows(candidates, (c) => {
+      const attributes = ATTRIBUTE_STATS[ruleKey(c.id)];
+      return attributes && attributes.includes(attribute) ? attributes : null;
+    });
+    const attributeTotal = attributeRows.reduce((sum, row) => sum + row.value, 0);
 
     suggestions.push(makeSuggestion(
       id,
-      [...direct.map((row) => row.candidate), ...attributeRows],
+      [...direct.map((row) => row.candidate), ...attributeRows.map((row) => row.candidate)],
       enabled,
       directTotal + attributeTotal * rate,
     ));
@@ -303,19 +293,15 @@ function buildLifeManaSuggestions(candidates) {
 
 /** 移动速度合计：唯一来源是 implicit 时默认禁用（EE2 行为） */
 function buildMovementSuggestions(candidates) {
-  const sources = [];
-  for (const candidate of candidates) {
-    if (ruleKey(candidate.id) !== MOVEMENT_STAT) continue;
-    if (resolveValue(candidate.value) === null) continue;
-    sources.push(candidate);
-  }
-  if (sources.length === 0) return [];
+  const rows = collectRows(candidates, (c) => ruleKey(c.id) === MOVEMENT_STAT || null);
+  if (rows.length === 0) return [];
+  const sources = rows.map((row) => row.candidate);
   const implicitOnly = sources.length === 1 && /^implicit\./i.test(sources[0].id);
   return [makeSuggestion(
     'pseudo.pseudo_increased_movement_speed',
     sources,
     !implicitOnly,
-    sources.reduce((sum, candidate) => sum + resolveValue(candidate.value), 0),
+    rows.reduce((sum, row) => sum + row.value, 0),
   )];
 }
 
