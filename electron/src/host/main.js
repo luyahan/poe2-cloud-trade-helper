@@ -136,7 +136,7 @@ async function handleItemText(text) {
     if (!compiledDict) await loadDictionary();
     const parsed = parseItemText(text);
     const matched = matchItem(parsed, compiledDict);
-    const { query, league, weaponDps, defences, mapMods } = buildQuery(parsed, matched, {
+    const { query, league, weaponDps, defences, mapMods, pseudo } = buildQuery(parsed, matched, {
       tierMax: settings.get('tierMax'),
       includeUntiered: settings.get('includeUntiered'),
       league: settings.get('league'),
@@ -144,13 +144,19 @@ async function handleItemText(text) {
       dpsRangePercent: settings.get('dpsRangePercent'),
       defences: settings.get('defencesEnabled'),
       mapFilters: settings.get('mapFiltersEnabled'),
+      pseudoEnabled: settings.get('pseudoEnabled'),
+      pseudoRangePercent: settings.get('pseudoRangePercent'),
     });
     const url = await encodeTradeUrl(query, league, settings.get('host'));
 
     const hitCount = matched.filter((m) => m.match).length;
     const totalFilters = query.stats[0].filters.length;
-    const enabledCount = query.stats[0].filters.filter((f) => !f.disabled).length;
-    lastResult = { parsed, matched, query, url, hitCount, enabledCount, weaponDps, defences, mapMods };
+    // 启用数要跨组统计：pseudo 合并会把第一组整组禁用、启用项落到第二组，
+    // 只看 stats[0] 会显示成「0 启用」，误导用户以为查询是空的。
+    const enabledCount = query.stats
+      .flatMap((group) => group.filters)
+      .filter((f) => !f.disabled).length;
+    lastResult = { parsed, matched, query, url, hitCount, enabledCount, weaponDps, defences, mapMods, pseudo };
 
     rebuildTrayMenu();
 
@@ -160,7 +166,8 @@ async function handleItemText(text) {
       return;
     }
 
-    notify(`已解析 ${parsed.name || parsed.baseName || '装备'}：命中 ${hitCount}/${matched.length} 词缀，启用 ${enabledCount} 条`, url);
+    const mergedNote = pseudo.applied.length ? `，合并 ${pseudo.applied.length} 条` : '';
+    notify(`已解析 ${parsed.name || parsed.baseName || '装备'}：命中 ${hitCount}/${matched.length} 词缀，启用 ${enabledCount} 条${mergedNote}`, url);
 
     if (settings.get('autoOpen')) {
       shell.openExternal(url);
@@ -213,7 +220,7 @@ function rebuildTrayMenu() {
   ];
 
   if (lastResult) {
-    const { parsed, hitCount, enabledCount, url, weaponDps, defences, mapMods } = lastResult;
+    const { parsed, hitCount, enabledCount, url, weaponDps, defences, mapMods, pseudo } = lastResult;
     template.push(
       { label: `最近：${parsed.name || parsed.baseName || '装备'} (${hitCount}命中/${enabledCount}启用)`, enabled: false },
     );
@@ -252,6 +259,17 @@ function rebuildTrayMenu() {
         { label: `引路石面板：${summary}`, enabled: false },
         { label: thresholdSummary ? `地图筛选：${thresholdSummary}` : '地图仅计算，不写入筛选', enabled: false },
         { label: '📋 复制引路石明细', click: () => clipboard.writeText(JSON.stringify(mapMods, null, 2)) },
+      );
+    }
+    if (pseudo && pseudo.suggestions.length) {
+      // 已启用的写入查询；未启用的只在这里展示（桌面端无勾选面板，写进 URL 也只是不可见死条）
+      const applied = pseudo.applied;
+      const skipped = pseudo.suggestions.filter((s) => !s.enabled);
+      template.push(
+        { label: `Pseudo 合并：${applied.length} 条已写入${skipped.length ? `，${skipped.length} 条未启用` : ''}`, enabled: false },
+        ...applied.map((s) => ({ label: `　✓ ${s.text} ≥ ${s.value.min}（${s.sources.length} 源）`, enabled: false })),
+        ...skipped.map((s) => ({ label: `　· ${s.text} = ${s.value.min}（默认不启用）`, enabled: false })),
+        { label: '📋 复制合并明细', click: () => clipboard.writeText(JSON.stringify(pseudo, null, 2)) },
       );
     }
     template.push(
@@ -295,7 +313,7 @@ function changeLeague() {
 function openSettings() {
   if (settingsWin) { settingsWin.show(); settingsWin.focus(); return; }
   settingsWin = new BrowserWindow({
-    width: 420, height: 480, title: '查价助手设置',
+    width: 420, height: 560, title: '查价助手设置',
     webPreferences: { preload: join(UI_DIR, 'preload.cjs'), contextIsolation: true },
   });
   settingsWin.loadFile(join(UI_DIR, 'settings.html'));

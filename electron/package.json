@@ -7,7 +7,7 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test test/*.test.js",
-    "check": "node --check src/host/main.js && node --check src/host/hotkey.js && node --check src/host/encode.js && node --check src/host/settings.js && node --check ../core/index.js && node --check ../core/parse-item.js && node --check ../core/weapon-dps.js && node --check ../core/defences.js && node --check ../core/map-mods.js && node --check ../core/query.js && node --check ../core/item-text.js && node --check ../core/match-stats.js && node --check ../scripts/prepare-data.js",
+    "check": "node --check src/host/main.js && node --check src/host/hotkey.js && node --check src/host/encode.js && node --check src/host/settings.js && node --check ../core/index.js && node --check ../core/parse-item.js && node --check ../core/weapon-dps.js && node --check ../core/defences.js && node --check ../core/map-mods.js && node --check ../core/pseudo.js && node --check ../core/query.js && node --check ../core/item-text.js && node --check ../core/match-stats.js && node --check ../scripts/prepare-data.js",
     "prepare-data": "node ../scripts/prepare-data.js",
     "predist": "npm run check && npm --prefix .. test && npm test && npm run prepare-data",
     "dist": "electron-builder --mac dir --arm64 && node scripts/sign-app.js",

@@ -815,6 +815,291 @@ var require_map_mods = __commonJS({
   }
 });
 
+// ../core/pseudo.js
+var require_pseudo = __commonJS({
+  "../core/pseudo.js"(exports, module) {
+    var RESISTANCE_STATS = {
+      stat_3372524247: { elements: ["fire"] },
+      // 火焰抗性 #%
+      stat_4220027924: { elements: ["cold"] },
+      // 冰霜抗性 #%
+      stat_1671376347: { elements: ["lightning"] },
+      // 闪电抗性 #%
+      stat_2923486259: { elements: [], chaos: true },
+      // 混沌抗性 #%
+      stat_2901986750: { elements: ["fire", "cold", "lightning"] },
+      // 所有元素抗性 #%
+      stat_3441501978: { elements: ["fire", "lightning"] },
+      // #% 火焰与闪电抗性
+      stat_2915988346: { elements: ["fire", "cold"] },
+      // #% 火焰与冰霜抗性
+      stat_4277795662: { elements: ["cold", "lightning"] },
+      // #% 冰霜与闪电抗性
+      stat_378817135: { elements: ["fire"], chaos: true },
+      // #% 火焰与混沌抗性
+      stat_3393628375: { elements: ["cold"], chaos: true },
+      // #% 冰霜与混沌抗性
+      stat_3465022881: { elements: ["lightning"], chaos: true }
+      // #% 闪电与混沌抗性
+    };
+    var ATTRIBUTE_STATS = {
+      stat_4080418644: ["strength"],
+      // # 力量
+      stat_3261801346: ["dexterity"],
+      // # 敏捷
+      stat_328541901: ["intelligence"],
+      // # 智慧
+      stat_1379411836: ["strength", "dexterity", "intelligence"],
+      // # 全属性
+      stat_1535626285: ["strength", "intelligence"],
+      // # 力量和智慧
+      stat_538848803: ["strength", "dexterity"],
+      // # 力量和敏捷
+      stat_2300185227: ["dexterity", "intelligence"]
+      // # 敏捷和智慧
+    };
+    var LIFE_STAT = "stat_3299347043";
+    var MANA_STAT = "stat_1050105434";
+    var MOVEMENT_STAT = "stat_2250533757";
+    var TABLET_USES_TEMPLATE = /剩余次数：#/;
+    var ATTRIBUTE_TO_LIFE = 2;
+    var ATTRIBUTE_TO_MANA = 2;
+    var PSEUDO_TEXT = {
+      "pseudo.pseudo_total_elemental_resistance": "\u603B\u5143\u7D20\u6297\u6027",
+      "pseudo.pseudo_total_resistance": "\u603B\u6297\u6027\uFF08\u5168\u6297+\u6700\u4F4E\u5355\u6297\uFF09",
+      "pseudo.pseudo_total_fire_resistance": "\u603B\u706B\u7130\u6297\u6027",
+      "pseudo.pseudo_total_cold_resistance": "\u603B\u51B0\u971C\u6297\u6027",
+      "pseudo.pseudo_total_lightning_resistance": "\u603B\u95EA\u7535\u6297\u6027",
+      "pseudo.pseudo_total_chaos_resistance": "\u603B\u6DF7\u6C8C\u6297\u6027",
+      "pseudo.pseudo_total_strength": "\u603B\u529B\u91CF",
+      "pseudo.pseudo_total_dexterity": "\u603B\u654F\u6377",
+      "pseudo.pseudo_total_intelligence": "\u603B\u667A\u6167",
+      "pseudo.pseudo_total_all_attributes": "\u5168\u5C5E\u6027\u5408\u8BA1",
+      "pseudo.pseudo_total_attributes": "\u5C5E\u6027\u603B\u548C",
+      "pseudo.pseudo_total_life": "\u603B\u751F\u547D\u503C",
+      "pseudo.pseudo_total_mana": "\u603B\u9B54\u529B\u503C",
+      "pseudo.pseudo_increased_movement_speed": "\u79FB\u52A8\u901F\u5EA6\u5408\u8BA1",
+      "pseudo.pseudo_number_of_uses_remaining": "\u77F3\u677F\u5269\u4F59\u4F7F\u7528\u6B21\u6570"
+    };
+    function ruleKey(id) {
+      if (typeof id !== "string") return "";
+      const dot = id.indexOf(".");
+      return dot >= 0 ? id.slice(dot + 1) : id;
+    }
+    function resolveValue(value) {
+      if (typeof value === "number") return value;
+      if (!value || typeof value !== "object") return null;
+      if (typeof value.min === "number") return value.min;
+      if (typeof value.max === "number") return value.max;
+      return null;
+    }
+    function makeSuggestion(id, sources, enabled, value) {
+      return {
+        id,
+        text: PSEUDO_TEXT[id] || id,
+        value: { min: value },
+        enabled,
+        sources
+      };
+    }
+    function buildResistanceSuggestions(candidates) {
+      const rows = [];
+      for (const candidate of candidates) {
+        const rule = RESISTANCE_STATS[ruleKey(candidate.id)];
+        if (!rule) continue;
+        const value = resolveValue(candidate.value);
+        if (value === null) continue;
+        rows.push({ candidate, rule, value });
+      }
+      if (rows.length === 0) return [];
+      const elements = { fire: 0, cold: 0, lightning: 0 };
+      for (const row of rows) {
+        for (const element of row.rule.elements) elements[element] += row.value;
+      }
+      const elementalRows = rows.filter((row) => row.rule.elements.length > 0);
+      const suggestions = [];
+      const elemental = elementalRows.reduce((sum, row) => sum + row.value * row.rule.elements.length, 0);
+      if (elemental > 0) {
+        suggestions.push(makeSuggestion(
+          "pseudo.pseudo_total_elemental_resistance",
+          elementalRows.map((row) => row.candidate),
+          true,
+          elemental
+        ));
+      }
+      const universal = rows.filter((row) => row.rule.elements.length === 3 && row.rule.chaos === true);
+      if (universal.length > 0) {
+        const universalTotal = universal.reduce((sum, row) => sum + row.value, 0);
+        suggestions.push(makeSuggestion(
+          "pseudo.pseudo_total_resistance",
+          rows.map((row) => row.candidate),
+          false,
+          universalTotal + Math.min(elements.fire, elements.cold, elements.lightning)
+        ));
+      }
+      const singles = [];
+      for (const [element, id] of [
+        ["fire", "pseudo.pseudo_total_fire_resistance"],
+        ["cold", "pseudo.pseudo_total_cold_resistance"],
+        ["lightning", "pseudo.pseudo_total_lightning_resistance"]
+      ]) {
+        if (elements[element] <= 0) continue;
+        const elementRows = rows.filter((row) => row.rule.elements.includes(element));
+        singles.push(makeSuggestion(id, elementRows.map((row) => row.candidate), false, elements[element]));
+      }
+      const chaosRows = rows.filter((row) => row.rule.chaos === true);
+      const chaos = chaosRows.reduce((sum, row) => sum + row.value, 0);
+      if (chaos > 0) {
+        suggestions.push(makeSuggestion(
+          "pseudo.pseudo_total_chaos_resistance",
+          chaosRows.map((row) => row.candidate),
+          false,
+          chaos
+        ));
+      }
+      if (singles.length > 0) {
+        const ordered = [...singles].sort((a, b) => b.value.min - a.value.min);
+        const keep = ordered.length === 1 ? ordered[0] : ordered[0].value.min !== ordered[1].value.min ? ordered[0] : null;
+        if (keep) suggestions.push(keep);
+      }
+      return suggestions;
+    }
+    function buildAttributeSuggestions(candidates) {
+      const rows = [];
+      for (const candidate of candidates) {
+        const attributes = ATTRIBUTE_STATS[ruleKey(candidate.id)];
+        if (!attributes) continue;
+        const value = resolveValue(candidate.value);
+        if (value === null) continue;
+        rows.push({ candidate, attributes, value });
+      }
+      if (rows.length === 0) return [];
+      const totals = { strength: 0, dexterity: 0, intelligence: 0 };
+      for (const row of rows) {
+        for (const attribute of row.attributes) totals[attribute] += row.value;
+      }
+      const suggestions = [];
+      for (const [attribute, id] of [
+        ["strength", "pseudo.pseudo_total_strength"],
+        ["dexterity", "pseudo.pseudo_total_dexterity"],
+        ["intelligence", "pseudo.pseudo_total_intelligence"]
+      ]) {
+        if (totals[attribute] <= 0) continue;
+        const attributeRows = rows.filter((row) => row.attributes.includes(attribute));
+        suggestions.push(makeSuggestion(
+          id,
+          attributeRows.map((row) => row.candidate),
+          true,
+          totals[attribute]
+        ));
+      }
+      const universalRows = rows.filter((row) => row.attributes.length === 3);
+      const universal = universalRows.reduce((sum, row) => sum + row.value, 0);
+      if (universal > 0) {
+        suggestions.push(makeSuggestion(
+          "pseudo.pseudo_total_all_attributes",
+          universalRows.map((row) => row.candidate),
+          false,
+          universal
+        ));
+      }
+      if (rows.length >= 2) {
+        suggestions.push(makeSuggestion(
+          "pseudo.pseudo_total_attributes",
+          rows.map((row) => row.candidate),
+          false,
+          rows.reduce((sum, row) => sum + row.value, 0)
+        ));
+      }
+      return suggestions;
+    }
+    function buildLifeManaSuggestions(candidates) {
+      const rows = [];
+      for (const candidate of candidates) {
+        const key = ruleKey(candidate.id);
+        if (key !== LIFE_STAT && key !== MANA_STAT) continue;
+        const value = resolveValue(candidate.value);
+        if (value === null) continue;
+        rows.push({ candidate, key, value });
+      }
+      if (rows.length === 0) return [];
+      const suggestions = [];
+      for (const [directKey, attribute, id, rate, enabled] of [
+        [LIFE_STAT, "strength", "pseudo.pseudo_total_life", ATTRIBUTE_TO_LIFE, true],
+        [MANA_STAT, "intelligence", "pseudo.pseudo_total_mana", ATTRIBUTE_TO_MANA, false]
+      ]) {
+        const direct = rows.filter((row) => row.key === directKey);
+        if (direct.length === 0) continue;
+        const directTotal = direct.reduce((sum, row) => sum + row.value, 0);
+        const attributeRows = [];
+        let attributeTotal = 0;
+        for (const candidate of candidates) {
+          const attributes = ATTRIBUTE_STATS[ruleKey(candidate.id)];
+          if (!attributes || !attributes.includes(attribute)) continue;
+          const value = resolveValue(candidate.value);
+          if (value === null) continue;
+          attributeRows.push(candidate);
+          attributeTotal += value;
+        }
+        suggestions.push(makeSuggestion(
+          id,
+          [...direct.map((row) => row.candidate), ...attributeRows],
+          enabled,
+          directTotal + attributeTotal * rate
+        ));
+      }
+      return suggestions;
+    }
+    function buildMovementSuggestions(candidates) {
+      const sources = [];
+      for (const candidate of candidates) {
+        if (ruleKey(candidate.id) !== MOVEMENT_STAT) continue;
+        if (resolveValue(candidate.value) === null) continue;
+        sources.push(candidate);
+      }
+      if (sources.length === 0) return [];
+      const implicitOnly = sources.length === 1 && /^implicit\./i.test(sources[0].id);
+      return [makeSuggestion(
+        "pseudo.pseudo_increased_movement_speed",
+        sources,
+        !implicitOnly,
+        sources.reduce((sum, candidate) => sum + resolveValue(candidate.value), 0)
+      )];
+    }
+    function buildTabletSuggestions(candidates) {
+      const sources = candidates.filter((candidate) => typeof candidate.template === "string" && TABLET_USES_TEMPLATE.test(candidate.template) && resolveValue(candidate.value) !== null);
+      if (sources.length === 0) return [];
+      return [makeSuggestion(
+        "pseudo.pseudo_number_of_uses_remaining",
+        sources,
+        true,
+        sources.reduce((sum, candidate) => sum + resolveValue(candidate.value), 0)
+      )];
+    }
+    function buildPseudoFilters(candidates) {
+      if (!Array.isArray(candidates) || candidates.length === 0) return [];
+      const existing = new Set(candidates.map((candidate) => candidate.id));
+      const usable = candidates.filter((candidate) => !/^pseudo\./i.test(candidate.id || ""));
+      if (usable.length === 0) return [];
+      return [
+        ...buildResistanceSuggestions(usable),
+        ...buildAttributeSuggestions(usable),
+        ...buildLifeManaSuggestions(usable),
+        ...buildMovementSuggestions(usable),
+        ...buildTabletSuggestions(usable)
+      ].filter((suggestion) => !existing.has(suggestion.id));
+    }
+    module.exports = {
+      buildPseudoFilters,
+      PSEUDO_TEXT,
+      RESISTANCE_STATS,
+      ATTRIBUTE_STATS,
+      ruleKey,
+      resolveValue
+    };
+  }
+});
+
 // ../core/query.js
 var require_query = __commonJS({
   "../core/query.js"(exports, module) {
@@ -895,14 +1180,18 @@ var require_query = __commonJS({
     var { addDpsFilters } = require_weapon_dps();
     var { addDefenceFilters } = require_defences();
     var { addMapFilters } = require_map_mods();
+    var { buildPseudoFilters } = require_pseudo();
     function buildQuery2(parsedItem, matched, opts = {}) {
       var _a, _b;
       const {
         tierMax = 2,
         includeUntiered = false,
-        league = "\u8054\u8D5B"
+        league = "\u8054\u8D5B",
+        pseudoEnabled = true,
+        pseudoRangePercent = 0
       } = opts;
       const filters = [];
+      const candidates = [];
       const seen = /* @__PURE__ */ new Set();
       for (const { mod, stat, match } of matched) {
         if (!match || !stat) continue;
@@ -924,12 +1213,20 @@ var require_query = __commonJS({
         if (value) filter.value = value;
         if (disabled) filter.disabled = true;
         filters.push(filter);
+        candidates.push({
+          id: match.id,
+          filter,
+          value,
+          template: match.text,
+          type: (match.group || mod.type || "").toLowerCase()
+        });
       }
       const query = {
         status: { option: "any" },
         stats: [{ type: "and", filters }],
         filters: {}
       };
+      const pseudoResult = pseudoEnabled && parsedItem.category !== "\u5F15\u8DEF\u77F3" ? applyPseudoMerge(query, candidates, { pseudoRangePercent }) : { suggestions: [], applied: [] };
       if (parsedItem.rarity === "\u4F20\u5947" && parsedItem.name) {
         query.name = parsedItem.name;
         if (parsedItem.baseName) query.type = parsedItem.baseName;
@@ -953,7 +1250,32 @@ var require_query = __commonJS({
       const weaponDps = addDpsFilters(query, parsedItem, opts);
       const defences = addDefenceFilters(query, parsedItem, opts, matched);
       const mapMods = addMapFilters(query, parsedItem, opts);
-      return { query, league, weaponDps, defences, mapMods };
+      return { query, league, weaponDps, defences, mapMods, pseudo: pseudoResult };
+    }
+    function adjustThreshold(value, rangePercent = 0) {
+      const percent = Math.max(0, Math.min(100, rangePercent)) / 100;
+      return Math.max(0, Math.floor(value * (1 - percent)));
+    }
+    function applyPseudoMerge(query, candidates, opts = {}) {
+      const { pseudoRangePercent = 0 } = opts;
+      const suggestions = buildPseudoFilters(candidates);
+      const applied = suggestions.filter((suggestion) => suggestion.enabled);
+      if (applied.length > 0) {
+        const filters = applied.map((suggestion) => {
+          const threshold = adjustThreshold(suggestion.value.min, pseudoRangePercent);
+          return { id: suggestion.id, value: { min: threshold } };
+        });
+        query.stats.push({ type: "and", filters });
+        for (const suggestion of applied) {
+          for (const source of suggestion.sources) {
+            if (!source.filter.disabled) {
+              source.filter.disabled = true;
+              source.pseudoConsumed = suggestion.id;
+            }
+          }
+        }
+      }
+      return { suggestions, applied };
     }
     function buildTradeUrl(payload, league, host = "poe.game.qq.com") {
       return `https://${host}/trade2/search/poe2/${encodeURIComponent(league)}/${payload}`;
@@ -969,19 +1291,21 @@ var import_query = __toESM(require_query());
 globalThis.parseAndQueryPrice = function(clipboardText, leagueName) {
   const item = (0, import_parse_item.parseItemText)(clipboardText);
   const matched = (0, import_match_stats.matchItem)(item, globalThis.compiledDict);
-  const { query, league, weaponDps, defences, mapMods } = (0, import_query.buildQuery)(item, matched, {
+  const { query, league, weaponDps, defences, mapMods, pseudo } = (0, import_query.buildQuery)(item, matched, {
     league: leagueName || "\u5468\u5E74\u5E86\u5DC5\u5CF0\u6311\u6218",
     dps: true,
     defences: true,
-    mapFilters: true
+    mapFilters: true,
+    pseudoEnabled: true
   });
   const hitCount = matched.filter((m) => m.match).length;
-  const enabledCount = query.stats[0].filters.filter((f) => !f.disabled).length;
+  const enabledCount = query.stats.flatMap((group) => group.filters || []).filter((f) => !f.disabled).length;
+  const mergedCount = pseudo.applied.length;
   return {
     query,
     // 返回 query 对象，由 Swift 层 gzip + base64url + 打开 URL
     league,
-    summary: `${item.name || item.baseName || "\u88C5\u5907"} (${hitCount}\u547D\u4E2D/${enabledCount}\u542F\u7528)`,
+    summary: `${item.name || item.baseName || "\u88C5\u5907"} (${hitCount}\u547D\u4E2D/${enabledCount}\u542F\u7528${mergedCount ? `/${mergedCount}\u5408\u5E76` : ""})`,
     item: {
       name: item.name,
       baseName: item.baseName,
@@ -990,6 +1314,7 @@ globalThis.parseAndQueryPrice = function(clipboardText, leagueName) {
     },
     weaponDps,
     defences,
-    mapMods
+    mapMods,
+    pseudo
   };
 };

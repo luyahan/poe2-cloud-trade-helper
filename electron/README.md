@@ -60,7 +60,11 @@ Windows 无此门槛。
 - **⚠️ 亵渎/打造/破裂词缀用 explicit id 查价**：市集在售装备按普通外延词缀索引，
   `desecrated.*`/`crafted.*` 分组只命中特殊状态挂单。匹配器对这三类优先取 explicit
   变体（EE2 `initUiModFilters` 同款策略，用户实测可用 URL 佐证）。
-- **pseudo 合并不在这里做**：交给页面侧油猴脚本（`userscript/`），避免两端重复累加。
+- **pseudo 合并在 core 层做**（`core/pseudo.js`）：同族抗性/属性/生命词缀合成一条合计筛选，
+  写入第二个 `and` 组，来源词缀保留但标 `disabled: true`。规则移植自同项目油猴脚本
+  （`userscript/docs/QUERY_OPTIMIZATION.md`），但判定主键改用 stat id —— 国服词典文本顺序
+  不统一（单元素「火焰抗性 #%」数值在后，双元素「#% 火焰与闪电抗性」数值在前），文本正则容易漏。
+  开关见设置项 `pseudoEnabled` / `pseudoRangePercent`。
 
 ## 安装与运行（开发态）
 

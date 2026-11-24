@@ -6,9 +6,7 @@
  *   - 无 tier 的 rune/implicit：默认禁用（避免噪声），可配
  *   - roll 取值：用 min 端做下限筛选（买家视角，找不低于此 roll 的）
  *   - 装备类别 → type_filters.category（基底名匹配）
- *
- * 注意：pseudo 合并放在油猴脚本侧做（页面已有 buildPseudoFilters），
- * 这里只生成精确词缀查询，避免两端重复累加。
+ *   - pseudo 合并：把同族词缀合成一条「总数」筛选，写入第二个 and 组
  */
 
 // 国服市集类别 option 映射
@@ -75,15 +73,21 @@ function rollValue(stat, match) {
 const { addDpsFilters } = require('./weapon-dps.js');
 const { addDefenceFilters } = require('./defences.js');
 const { addMapFilters } = require('./map-mods.js');
+const { buildPseudoFilters } = require('./pseudo.js');
 
 function buildQuery(parsedItem, matched, opts = {}) {
   const {
     tierMax = 2,
     includeUntiered = false,
     league = '联赛',
+    pseudoEnabled = true,
+    pseudoRangePercent = 0,
   } = opts;
 
   const filters = [];
+  // pseudo 合并的候选：与 filters 一一对应（同一对象引用），
+  // 这样建议命中来源后可以直接回贴 disabled，不必二次查表。
+  const candidates = [];
   const seen = new Set();
   for (const { mod, stat, match } of matched) {
     if (!match || !stat) continue;
@@ -110,6 +114,13 @@ function buildQuery(parsedItem, matched, opts = {}) {
     if (value) filter.value = value;
     if (disabled) filter.disabled = true;
     filters.push(filter);
+    candidates.push({
+      id: match.id,
+      filter,
+      value,
+      template: match.text,
+      type: (match.group || mod.type || '').toLowerCase(),
+    });
   }
 
   // 国服 trade2 URL 载荷是【扁平结构】：{status, stats, filters} 直接在顶层，
@@ -120,6 +131,14 @@ function buildQuery(parsedItem, matched, opts = {}) {
     stats: [{ type: 'and', filters }],
     filters: {},
   };
+
+  // ---- pseudo 合并：写入第二个 and 组 ----
+  // 单独成组而非塞进第一组：第一组是「每条精确词缀都要满足」，
+  // 合并值是同族词缀合计，语义不同，混在一起会让条件失真。
+  // 引路石跳过（其语义是只按 map_filters 搜，词缀组本已全禁用）。
+  const pseudoResult = (pseudoEnabled && parsedItem.category !== '引路石')
+    ? applyPseudoMerge(query, candidates, { pseudoRangePercent })
+    : { suggestions: [], applied: [] };
 
   // 传奇：name 只放传奇名，type 只放基底名；不要把两个名称拼成一个不存在的基底。
   // 稀有：type 放基底名，不使用随机装备名。
@@ -159,7 +178,53 @@ function buildQuery(parsedItem, matched, opts = {}) {
   const defences = addDefenceFilters(query, parsedItem, opts, matched);
   const mapMods = addMapFilters(query, parsedItem, opts);
 
-  return { query, league, weaponDps, defences, mapMods };
+  return { query, league, weaponDps, defences, mapMods, pseudo: pseudoResult };
+}
+
+/**
+ * 搜索阈值下调，与 DPS / 引路石共用同一套口径：
+ * 计算值不变，只把市集搜索下限按 rangePercent 向下微调（买家策略）。
+ */
+function adjustThreshold(value, rangePercent = 0) {
+  const percent = Math.max(0, Math.min(100, rangePercent)) / 100;
+  return Math.max(0, Math.floor(value * (1 - percent)));
+}
+
+/**
+ * 把 pseudo 建议落到查询上。
+ *
+ * 只写「已启用」的建议：桌面端没有勾选面板，禁用建议若也写进 URL，
+ * 市集里就是一组看不见也用不上的 disabled 条，纯属增加载荷。
+ * 但被禁用的建议仍随 pseudoResult 返回，托盘菜单里会展示，用户可据此改配置。
+ *
+ * 来源词缀只在「原本启用」时才被禁用：如果某条词缀本来就因为 T3+/rune 被禁用，
+ * 它并没有参与第一组的搜索，不需要、也不应该被 pseudo 改写状态。
+ */
+function applyPseudoMerge(query, candidates, opts = {}) {
+  const { pseudoRangePercent = 0 } = opts;
+  const suggestions = buildPseudoFilters(candidates);
+  const applied = suggestions.filter((suggestion) => suggestion.enabled);
+
+  if (applied.length > 0) {
+    const filters = applied.map((suggestion) => {
+      // 搜索下限按 pseudoRangePercent 下调，与 DPS/引路石阈值同一套口径
+      const threshold = adjustThreshold(suggestion.value.min, pseudoRangePercent);
+      return { id: suggestion.id, value: { min: threshold } };
+    });
+    query.stats.push({ type: 'and', filters });
+
+    // 来源词缀：保留不删除，只标 disabled（项目硬性约定）
+    for (const suggestion of applied) {
+      for (const source of suggestion.sources) {
+        if (!source.filter.disabled) {
+          source.filter.disabled = true;
+          source.pseudoConsumed = suggestion.id;
+        }
+      }
+    }
+  }
+
+  return { suggestions, applied };
 }
 
 /**

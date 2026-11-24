@@ -9,6 +9,7 @@ core/            @poe2/core —— 纯业务逻辑，零平台依赖（Node / Qu
   parse-item.js    国服简中装备文本解析
   match-stats.js   词缀模板 → 真实 trade id 匹配（含词典编译/序列化）
   query.js         匹配结果 → trade2 查询 JSON
+  pseudo.js        同族词缀合并（总抗/总属性/总生命，来源保留只禁用）
   weapon-dps.js    q20 武器面板 DPS
   defences.js      装备防御面板 → equipment_filters
   map-mods.js      引路石面板 → map_filters
@@ -56,13 +57,48 @@ electron/src/ui  →  electron/src/host  →  core/  ←  macos-quickjs（经 co
   Swift 用 `/usr/bin/gzip`；`core/query.js` 只提供纯字符串的 `buildTradeUrl`。
 - `macos-quickjs/` 与 `electron/` 之间**零依赖**：代码引用仓库根 `core/`，数据引用仓库根 `data/`。
 
+## Pseudo 合并
+
+装备上一堆抗性词缀（火 45 / 冰 50 / 电 30）分开写进 AND 组，市集几乎搜不到东西——
+既要有人同时满足这三条，数值还得各自达标。合并就是换成一条「总元素抗性 ≥ 125」。
+
+规则表在 `core/pseudo.js`，语义对齐 EE2 `filterPseudo`（与同项目油猴脚本同源）：
+
+| 建议 | 计算方式 | 默认 |
+|---|---|---|
+| 总元素抗性 | Σ(数值 × 该词缀覆盖的元素个数)；全抗算 3 份，双抗算 2 份 | 写入 |
+| 总抗性 | 需存在「三元素+混沌」全抗词缀；全抗合计 + min(火,冰,电) | 不写入 |
+| 单元素抗性 | 按元素合计，**只保留数值唯一最高的一条**（并列最高全丢） | 不写入 |
+| 总混沌抗性 | 混沌合计（单混沌、双元素混沌都计入） | 不写入 |
+| 总力量/敏捷/智慧 | 各自合计（全属性/双属性按完整数值计入，不倍乘） | 写入 |
+| 全属性合计 / 属性总和 | 全属性词缀合计 / 所有属性来源合计（需 ≥2 源） | 不写入 |
+| 总生命 / 总魔力 | 直接生命(魔力) + 力量(智慧) × 2，**必须有直接词缀** | 生命写入，魔力不写入 |
+| 移动速度合计 | 移速合计；唯一来源是 implicit 时默认禁用 | 写入 |
+| 石板剩余次数 | implicit 里「剩余次数：#」合计 | 写入 |
+
+三条硬性约定（与油猴版一致）：
+
+1. **不删除**：被合并的原词缀留在查询里，只标 `"disabled": true`。
+2. **不改数**：数值全取自装备自身 roll，不是上一轮搜索条件。
+3. **不猜测**：启停由固定规则表决定。
+
+合并结果写入**第二个 `and` 组**，不塞进第一组——第一组语义是「每条精确词缀都要满足」，
+合并值是同族合计，混在一起会让条件失真。默认禁用的建议不写进 URL（桌面端没有勾选面板，
+写进去只是不可见的死条），但会在托盘菜单里列出来，方便确认数值。
+
+配置项：`pseudoEnabled`（总开关）、`pseudoRangePercent`（合并值搜索下限下调 0-2%）。
+
+> 与油猴版的实现差异：判定主键用 **stat id** 而非文本正则——国服词典文本顺序不统一
+> （单元素「火焰抗性 #%」数值在后，双元素「#% 火焰与闪电抗性」数值在前），
+> 正则很容易漏；stat id 跨分组跨语言稳定。
+
 ## 常用命令
 
 ```bash
 npm run prepare-data     # 拉最新国服词典 + 当前联赛 → data/
-npm test                 # 55 项：纯业务逻辑 + 分层边界守卫（不启动 Electron）
+npm test                 # 82 项：纯业务逻辑 + 分层边界守卫（不启动 Electron）
 npm run test:host        # 4 项：Electron 宿主层（热键旁听、gzip 编码）
-npm run test:all         # 上面两套一起跑
+npm run test:all         # 上面两套一起跑（86 项）
 npm run check            # 全部模块语法校验
 npm run build:quickjs    # 构建 macOS 原生壳
 
@@ -74,7 +110,7 @@ npm run dist             # 打包 .app（check → 测试 → prepare-data → �
 ## 测试为什么分两处
 
 - **`test/`（仓库根）** 只测 `core/`，完全不碰 Electron。`require('electron')` 在这里是禁忌，
-  所以这 55 项在任何有 Node 的环境都能跑（CI 不需要图形环境）。
+  所以这 82 项在任何有 Node 的环境都能跑（CI 不需要图形环境）。
 - **`electron/test/`** 只测进入 Electron 之后才存在的能力：uiohook 热键旁听、node:zlib 编码。
   这些天然依赖宿主，放根目录会让 core 测试失去「纯 Node 可跑」的性质。
 
@@ -85,7 +121,7 @@ npm run dist             # 打包 .app（check → 测试 → prepare-data → �
 `require('node:zlib')`，原生壳立刻编译不过——所以 core 必须物理上独立，而不是
 「放在 electron 里但约定不引用」。
 
-这条边界现在由 `test/architecture.test.js` 的 15 项测试守卫，不是靠自觉。
+这条边界现在由 `test/architecture.test.js` 的 16 项测试守卫，不是靠自觉。
 
 ## 各端详细文档
 

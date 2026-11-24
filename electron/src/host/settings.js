@@ -17,6 +17,8 @@ const DEFAULTS = {
   dpsRangePercent: 2,     // 搜索阈值相对计算值下调比例（0-2%）
   defencesEnabled: true,  // 是否将 q20 防御面板下限写入交易筛选
   mapFiltersEnabled: true, // 是否将引路石面板字段写入 map_filters
+  pseudoEnabled: true,    // 是否做 pseudo 合并（抗性/属性/生命等同族词缀合计）
+  pseudoRangePercent: 2,  // 合并数值的搜索下限下调比例
 };
 
 class Settings {

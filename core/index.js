@@ -20,6 +20,7 @@ const {
   matchItem,
 } = require('./match-stats.js');
 const { buildQuery, buildTradeUrl } = require('./query.js');
+const { buildPseudoFilters, PSEUDO_TEXT } = require('./pseudo.js');
 const { calcWeaponDps, searchMin, addDpsFilters } = require('./weapon-dps.js');
 const { calcDefences, addDefenceFilters } = require('./defences.js');
 const { calcMapMods, addMapFilters, MAP_FIELDS } = require('./map-mods.js');
@@ -31,10 +32,12 @@ function buildPricedQuery(clipboardText, compiledDict, opts = {}) {
   const matched = matchItem(item, compiledDict);
   const result = buildQuery(item, matched, opts);
   const hitCount = matched.filter((m) => m.match).length;
-  const enabledCount = result.query.stats[0].filters.filter((f) => !f.disabled).length;
+  // 跨组统计启用数：pseudo 合并会把精确词缀组整组禁用、启用项落到合并组
+  const enabledCount = result.query.stats
+    .flatMap((group) => group.filters)
+    .filter((f) => !f.disabled).length;
   return { item, matched, ...result, hitCount, enabledCount };
 }
-
 module.exports = {
   parseItemText,
   compileDictionary,
@@ -45,6 +48,8 @@ module.exports = {
   matchItem,
   buildQuery,
   buildTradeUrl,
+  buildPseudoFilters,
+  PSEUDO_TEXT,
   calcWeaponDps,
   searchMin,
   addDpsFilters,

@@ -12,6 +12,7 @@
     "./weapon-dps": "./weapon-dps.js",
     "./defences": "./defences.js",
     "./map-mods": "./map-mods.js",
+    "./pseudo": "./pseudo.js",
     "./item-text": "./item-text.js"
   },
   "files": [

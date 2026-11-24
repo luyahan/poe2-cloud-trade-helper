@@ -12,20 +12,25 @@ import { buildQuery } from '../../../core/query.js';
 globalThis.parseAndQueryPrice = function(clipboardText, leagueName) {
     const item = parseItemText(clipboardText);
     const matched = matchItem(item, globalThis.compiledDict);
-    const { query, league, weaponDps, defences, mapMods } = buildQuery(item, matched, {
+    const { query, league, weaponDps, defences, mapMods, pseudo } = buildQuery(item, matched, {
         league: leagueName || '周年庆巅峰挑战',
         dps: true,
         defences: true,
         mapFilters: true,
+        pseudoEnabled: true,
     });
 
     const hitCount = matched.filter(m => m.match).length;
-    const enabledCount = query.stats[0].filters.filter(f => !f.disabled).length;
+    // 跨组统计：pseudo 合并会把精确词缀组整组禁用、启用项落到合并组
+    const enabledCount = query.stats
+        .flatMap(group => group.filters || [])
+        .filter(f => !f.disabled).length;
+    const mergedCount = pseudo.applied.length;
 
     return {
         query,           // 返回 query 对象，由 Swift 层 gzip + base64url + 打开 URL
         league,
-        summary: `${item.name || item.baseName || '装备'} (${hitCount}命中/${enabledCount}启用)`,
+        summary: `${item.name || item.baseName || '装备'} (${hitCount}命中/${enabledCount}启用${mergedCount ? `/${mergedCount}合并` : ''})`,
         item: {
             name: item.name,
             baseName: item.baseName,
@@ -35,5 +40,6 @@ globalThis.parseAndQueryPrice = function(clipboardText, leagueName) {
         weaponDps,
         defences,
         mapMods,
+        pseudo,
     };
 };

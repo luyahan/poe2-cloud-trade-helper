@@ -23,7 +23,7 @@ function coreFiles() {
 test('结构：core 是独立包，不在 electron 内部', () => {
   assert.equal(existsSync(join(CORE, 'package.json')), true, 'core 应自带 package.json');
   assert.equal(existsSync(join(ELECTRON_SRC, 'core')), false, 'core 不应再位于 electron/src 下');
-  for (const f of ['parse-item', 'match-stats', 'query', 'weapon-dps', 'defences', 'map-mods', 'item-text']) {
+  for (const f of ['parse-item', 'match-stats', 'query', 'weapon-dps', 'defences', 'map-mods', 'pseudo', 'item-text']) {
     assert.equal(existsSync(join(CORE, `${f}.js`)), true, `core/${f}.js 应存在`);
   }
 });
@@ -118,7 +118,7 @@ test('分层：无引用的历史数据已删除', () => {
 
 test('结构：测试目录划分（纯逻辑在根 test/，宿主在 electron/test/）', () => {
   for (const f of ['pipeline.test.js', 'weapon-dps.test.js', 'defences.test.js',
-                   'map-mods.test.js', 'architecture.test.js']) {
+                   'map-mods.test.js', 'pseudo.test.js', 'architecture.test.js']) {
     assert.equal(existsSync(join(REPO, 'test', f)), true, `根 test/${f} 应存在`);
   }
   assert.equal(existsSync(join(REPO, 'electron', 'test', 'host.test.js')), true,
