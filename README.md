@@ -3,7 +3,7 @@
 在云游戏里按 `Ctrl+Alt+C` 复制装备 → 自动解析 → 匹配国服词典 → 打开交易市集。
 
 业务逻辑只有一份（`core/`），两个壳共用：Electron 托盘壳（macOS 菜单栏 / Windows 通知区）
-与 macOS QuickJS 原生壳（约 2.5MB，适合云端 / 低配机器）。
+与 macOS QuickJS 原生壳。
 
 ## 目录概览
 
